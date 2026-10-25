@@ -25,6 +25,14 @@ body {
   background: rgb(110 231 183 / 0.35);
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 button:focus-visible,
 a:focus-visible,
 [tabindex]:focus-visible {
