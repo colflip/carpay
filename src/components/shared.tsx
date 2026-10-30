@@ -334,7 +334,7 @@ export function ToggleGroup<T extends string | number>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className={`inline-flex flex-wrap items-center justify-end gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100/60 p-0.5 dark:border-zinc-800 dark:bg-zinc-900/80 ${
+      className={`inline-flex flex-wrap items-center justify-end gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100/60 px-0.5 py-[1.5px] dark:border-zinc-800 dark:bg-zinc-900/80 ${
         compact ? 'sm:py-[1.5px]' : ''
       }`}
     >
@@ -347,8 +347,8 @@ export function ToggleGroup<T extends string | number>({
             aria-pressed={active}
             disabled={o.disabled}
             onClick={() => onChange(o.value)}
-            className={`relative flex h-9 items-center rounded-md px-1.5 text-[13px] tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-              compact ? 'sm:h-[25px]' : 'sm:h-7'
+            className={`relative flex h-[30px] items-center rounded-md px-1.5 text-[13px] tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              compact ? 'sm:h-[25px]' : 'sm:h-[25px]'
             } sm:px-2.5 sm:text-sm ${
               active
                 ? 'font-medium text-zinc-900 dark:text-zinc-50'
@@ -377,6 +377,7 @@ export function Segmented<T extends string>({
   groupId,
   ariaLabel,
   className,
+  compact,
 }: {
   value: T;
   onChange: (v: T) => void;
@@ -384,6 +385,7 @@ export function Segmented<T extends string>({
   groupId: string;
   ariaLabel: string;
   className?: string;
+  compact?: boolean;
 }) {
   return (
     <div
@@ -400,7 +402,11 @@ export function Segmented<T extends string>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(o.value)}
-            className={`relative flex h-10 items-center justify-center rounded-[10px] px-3 text-[13px] transition-colors sm:h-[34px] sm:px-4 sm:text-sm ${
+            className={`relative flex items-center justify-center rounded-[10px] px-3 text-[13px] transition-colors sm:text-sm ${
+              compact
+                ? 'h-[30px] sm:h-[30px] sm:px-3.5'
+                : 'h-10 sm:h-[34px] sm:px-4'
+            } ${
               active
                 ? 'text-zinc-900 dark:text-zinc-50'
                 : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -413,7 +419,7 @@ export function Segmented<T extends string>({
                 transition={{ type: 'spring', stiffness: 420, damping: 34 }}
               />
             )}
-            <span className="relative flex items-center gap-1.5">
+            <span className="relative flex items-center gap-1.5 text-[15px]">
               {Icon && <Icon size={14} strokeWidth={2} aria-hidden className="max-sm:hidden" />}
               {o.label}
             </span>

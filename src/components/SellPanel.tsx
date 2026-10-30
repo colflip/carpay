@@ -628,7 +628,7 @@ export default function SellPanel({
                   落地 {fmtCNY(calc.loan.buyTotal)} + 用车 {fmtCNY(calc.ownTotal)} − 到手 {fmtCNY(calc.netProceeds)}
                   {calc.refund > 0 ? ` − 退保 ${fmtCNY(calc.refund)}` : ''}
                 </div>
-                <div>置换/报废/首购补贴已在购车页抵扣；贷款结清余额从卖车款中扣除；折旧已通过卖车款变现。</div>
+                <div>置换/报废/首购/保险补贴已在购车页抵扣；贷款结清余额从卖车款中扣除；折旧已通过卖车款变现。</div>
               </div>
               <p className="relative mt-2 text-center text-[13px] leading-relaxed text-zinc-400 dark:text-zinc-500">
                 本测算基于保值率曲线与用户输入，仅供参考；实际成交以二手车行情为准。

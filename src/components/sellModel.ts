@@ -81,7 +81,7 @@ export function loanAtSale(buyForm: BuyForm, buyCalc: BuyCalc, sellMonth: number
       settleFee: 0,
     };
   }
-  // 截断口径：首付 + 月供至卖出月（车价与已产生利息）+ 购置税/车船税/首年险/杂费 − 补贴；
+  // 截断口径：首付 + 月供至卖出月（车价与已产生利息）+ 购置税/车船税/首年险/杂费 − 各项补贴；
   // 注意不能加含车价的 baseTotal，否则车价重复计入
   const extras = buyCalc.purchaseTax + buyCalc.vessel + buyCalc.insuranceTotal + buyCalc.feesTotal;
   return {
@@ -399,7 +399,7 @@ export function buildSellDetailText(sf: SellForm, c: SellCalc, ctx: SellTextCtx)
     'CarPay · 卖车损益测算明细',
     `车辆：${ctx.vehicleName}（${energyLabel(ctx.energyType)}｜第 ${c.sellYear} 年第 ${c.sellMonth} 月卖出｜年行驶 ${ctx.annualKm.toLocaleString('zh-CN')} km）`,
     '',
-    '【口径】置换/报废/首购补贴已在购车测算页抵扣落地总价，不再重复计算；贷款结清余额从卖车款中扣除；折旧通过卖车款变现，不计现金支出。',
+    '【口径】置换/报废/首购/保险补贴已在购车测算页抵扣落地总价，不再重复计算；贷款结清余额从卖车款中扣除；折旧通过卖车款变现，不计现金支出。',
     '',
     '【残值】',
     ...sellModeLines,

@@ -1,6 +1,6 @@
-// 分享/导出图片的品牌海报包装：把汇总卡片套进带品牌页眉与来源页脚（二维码 + 生成时间）的海报里再截图
+// 分享/导出图片的品牌海报包装：把汇总卡片套进带品牌页眉与页脚（二维码 + 时间 + 站点链接）的海报里再截图
 const SITE_URL = 'https://colflip.github.io/carpay/';
-const SITE_HOST = 'colflip.github.io/carpay';
+const SITE_LINK = 'https://colflip.github.io/carpay';
 
 const logoSvg = (size: number, dark: boolean): string =>
   `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="${
@@ -82,15 +82,13 @@ export async function renderPosterPng(
   }`;
   footer.innerHTML = `
     <div class="min-w-0 space-y-1">
-      <div class="text-[13px] font-medium leading-4 ${dark ? 'text-zinc-300' : 'text-zinc-600'}">来源 · CarPay 纯前端离线计算</div>
-      <div class="text-[13px] leading-4 ${muted}">生成时间：${time}</div>
-      <div class="truncate text-[13px] leading-4 ${muted}">${SITE_HOST}</div>
+      <div class="truncate text-[13px] leading-4 ${muted}">${SITE_LINK}</div>
+      <div class="text-[13px] leading-4 ${muted}">${time}</div>
     </div>
     <div class="flex shrink-0 flex-col items-center gap-1">
       <img src="${qr}" width="72" height="72" alt="" class="rounded-lg border bg-white p-1 ${
         dark ? 'border-zinc-700' : 'border-zinc-200'
       }" />
-      <span class="text-[11px] leading-3 ${muted}">扫码打开</span>
     </div>`;
   poster.appendChild(footer);
 
