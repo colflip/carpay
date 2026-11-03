@@ -24,8 +24,8 @@ import {
   Zap,
 } from 'lucide-react';
 import type { BuyForm } from './buyModel';
-import { autoResidualPct, energyLabel, type OwnForm } from './ownCostModel';
-import { buildSellDetailText, type SellCalc, type SellForm } from './sellModel';
+import { autoResidualPctAt, energyLabel, type OwnForm } from './ownCostModel';
+import { buildSellDetailText, salePeriodText, type SellCalc, type SellForm } from './sellModel';
 import {
   AnimatedAmount,
   clamp,
@@ -36,6 +36,7 @@ import {
   fmtCNY,
   FormSection,
   LabelInput,
+  localDateStamp,
   num,
   round2,
   sanitizeMoney,
@@ -102,7 +103,8 @@ export default function SellPanel({
     [patch],
   );
 
-  const anchorYear = clamp(Math.round(calc.yearFrac), 1, 10);
+  const { yearFrac } = calc;
+  const autoRate = autoResidualPctAt(ownForm.energyType, yearFrac);
   const sellMonthAbs = (calc.sellYear - 1) * 12 + calc.sellMonth;
   const maxAvg = Math.max(1, ...calc.rows.map((r) => r.yearlyAvg));
   const textCtx = {
@@ -130,7 +132,7 @@ export default function SellPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `CarPay-${exportBaseName()}-${localDateStamp()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -150,7 +152,7 @@ export default function SellPanel({
       await copyFallback();
       return;
     }
-    const fileName = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.png`;
+    const fileName = `CarPay-${exportBaseName()}-${localDateStamp()}.png`;
     setShareBusy(true);
     try {
       const probe = new File([new Uint8Array([137])], 'probe.png', { type: 'image/png' });
@@ -180,7 +182,7 @@ export default function SellPanel({
       if (!dataUrl) return;
       const a = document.createElement('a');
       a.href = dataUrl;
-      a.download = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.png`;
+      a.download = `CarPay-${exportBaseName()}-${localDateStamp()}.png`;
       a.click();
     } catch {
       /* 截图失败时静默退出，可改用导出 txt */
@@ -196,7 +198,7 @@ export default function SellPanel({
   ];
 
   const residualBadge =
-    form.residualRatePct === null ? (
+    form.residualRatePct === null || form.residualRatePct.trim() === '' ? (
       <span className="rounded-full border border-zinc-200 px-1.5 py-px text-[13px] leading-4 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
         自动
       </span>
@@ -253,7 +255,7 @@ export default function SellPanel({
                 <LabelInput
                   id="sell-month"
                   label="卖出月份"
-                  tip="12 月＝按整年卖出（默认）。月份影响：当年能源杂项按月折算、在保保单按剩余月份退保回收、贷款月供计至卖出当月。"
+                  tip="12 月＝按整年卖出（默认）。月份影响：当年能源杂项按月折算、在保保单按剩余月份退保回收、贷款月供计至卖出当月；残值率按车龄在相邻年度曲线间线性插值。"
                   prefix={null}
                   suffix="月"
                   placeholder="12"
@@ -307,7 +309,7 @@ export default function SellPanel({
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm text-zinc-700 dark:text-zinc-300">残值基数</span>
-                        <Tip text="成交价＝购车页计税基数（裸车+选装−优惠−返点），与用车面板折旧参考同口径；指导价＝厂商指导裸车原价，贴近二手车平台按指导价折扣报价的习惯。" />
+                        <Tip text="成交价＝购车页成交价（裸车 + 选装 − 官方优惠 − 门店优惠 − 金融返点），与用车面板折旧参考同口径；开票价只用于购置税与补贴，不影响残值。指导价＝厂商指导裸车原价，贴近二手车平台按指导价折扣报价的习惯。" />
                       </div>
                       <Segmented
                         className="ml-auto"
@@ -325,12 +327,20 @@ export default function SellPanel({
                       <LabelInput
                         id="sell-rate"
                         label="预估残值率"
-                        tip={`按流通协会保值率曲线自动估算：${energyLabel(ownForm.energyType)}车持有 ${anchorYear} 年约 ${autoResidualPct(ownForm.energyType, anchorYear)}%；可按二手车平台行情手动修改，点框内按钮恢复自动。`}
+                        tip={`按流通协会保值率曲线自动估算：${energyLabel(ownForm.energyType)}车当前车龄约 ${autoRate}%；可按二手车平台行情手动修改，点框内按钮恢复自动。`}
                         prefix={null}
                         suffix="%"
                         badge={residualBadge}
-                        value={form.residualRatePct ?? String(autoResidualPct(ownForm.energyType, anchorYear))}
+                        value={form.residualRatePct ?? String(autoRate)}
                         onChange={(v) => patch({ residualRatePct: sanitizeMoney(v) })}
+                        onBlur={() =>
+                          patch({
+                            residualRatePct:
+                              form.residualRatePct !== null && form.residualRatePct.trim() !== ''
+                                ? String(clamp(num(form.residualRatePct), 0, 100))
+                                : null,
+                          })
+                        }
                         after={
                           form.residualRatePct !== null ? (
                             <button
@@ -442,7 +452,7 @@ export default function SellPanel({
               <div className="mb-1.5 flex items-center justify-between rounded-xl bg-zinc-100/80 px-3 py-2 dark:bg-zinc-800/50">
                 <span className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400">
                   预计退保回收
-                  <Tip text="过户前可退在保商业险（交强险随车过户则不退）：退回 ≈ 在保保费 × 剩余月份占比 × (1 − 手续费率)；实际按天计算、各公司手续费不同。保费基数与 NCD 折扣跟随用车成本页。" />
+                  <Tip text="过户前可退在保商业险（交强险随车过户则不退）：退回 ≈ 可退保基数 × NCD × 剩余月份占比 × (1 − 手续费率)；实际按天计算、各公司手续费不同。可退保基数在用车成本页填写（默认带入购车页商业险）。" />
                 </span>
                 <span
                   className={`text-[15px] font-medium tabular-nums ${
@@ -479,6 +489,11 @@ export default function SellPanel({
               </div>
               <CompositionBar parts={barParts} />
             </div>
+            {calc.manualMissing && (
+              <div className="mx-4 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] leading-relaxed text-amber-800 dark:border-amber-900/60 dark:bg-amber-500/10 dark:text-amber-300 sm:mx-9">
+                手动卖价未填写：以下结果按 0 元估算，不具参考意义，请先在上方填写二手车平台报价。
+              </div>
+            )}
 
             <div className="divide-y divide-zinc-100 border-t border-zinc-100 px-4 sm:px-9 dark:divide-zinc-800/70 dark:border-zinc-800/70">
               <SummaryGroup icon={HandCoins} title="卖车到手价">
@@ -495,7 +510,7 @@ export default function SellPanel({
                     tip={
                       form.residualMode === 'manual'
                         ? '以二手车平台同款车报价填写，里程与车况已在报价中体现。'
-                        : `${form.residualBase === 'msrp' ? '厂商指导价' : '计税基数（成交价）'} ${fmtCNY(calc.residualBaseVal)} × 残值率，曲线参考流通协会保值率报告${
+                        : `${form.residualBase === 'msrp' ? '厂商指导价' : '成交价'} ${fmtCNY(calc.residualBaseVal)} × 残值率，曲线参考流通协会保值率报告${
                             calc.mileageAdj !== 0 ? `，含里程修正 ${calc.mileageAdj > 0 ? '+' : ''}${calc.mileageAdj}%` : ''
                           }。`
                     }
@@ -535,8 +550,8 @@ export default function SellPanel({
                 <SummaryRow
                   label="到手价"
                   tip="卖价 − 贷款结清 − 手续费 − 卖出费用；保险退保回收另列于全周期净支出。"
-                  value={fmtCNY(calc.netProceeds)}
-                  tone="strong"
+                  value={calc.manualMissing ? '—' : fmtCNY(calc.netProceeds)}
+                  tone={calc.manualMissing ? 'muted' : 'strong'}
                 />
               </SummaryGroup>
 
@@ -555,15 +570,20 @@ export default function SellPanel({
                   value={fmtCNY(calc.loan.buyTotal)}
                 />
                 <SummaryRow
-                  label={`用车成本（${calc.sellYear} 年${calc.sellMonth === 12 ? '整年' : ` ${calc.sellMonth} 个月`}）`}
+                  label={`用车成本（${salePeriodText(calc.sellYear, calc.sellMonth)}）`}
                   tip="复用用车成本口径按卖出时点截断：能源杂项按月折算、保养按里程节点计次、卖出年保费整年计。"
                   value={fmtCNY(calc.ownTotal)}
                 />
-                <SummaryRow label="卖车到手价" tip="卖出回收，冲减全周期支出。" value={deductCNY(calc.netProceeds)} tone="minus" />
+                <SummaryRow
+                  label="卖车到手价"
+                  tip="卖出回收，冲减全周期支出。"
+                  value={calc.manualMissing ? '—' : deductCNY(calc.netProceeds)}
+                  tone={calc.manualMissing ? 'muted' : 'minus'}
+                />
                 {calc.refund > 0 && (
                   <SummaryRow
                     label="保险退保回收"
-                    tip={`在保保单保费按剩余月份折算退还（手续费率 ${form.refundFeePct}%），须在过户前办理。`}
+                    tip={`退回在保商业险保费（手续费率 ${form.refundFeePct}%，交强险随车过户不退），须在过户前办理；可退保基数在用车成本页修改。`}
                     value={deductCNY(calc.refund)}
                     tone="minus"
                   />
@@ -576,7 +596,7 @@ export default function SellPanel({
                 <div className="flex items-center gap-1.5 text-[13px] font-medium text-zinc-400 dark:text-zinc-500">
                   <TrendingDown size={13} strokeWidth={2} aria-hidden />
                   年均持有成本走势（第 1-10 年卖出）
-                  <Tip text="各年年末整年卖出口径下的年均持有成本：早期折旧摊薄最快，其后用车成本逐年抬升，年均最低点即本口径下的最优卖出年。" />
+                  <Tip text="各年年末整年卖出口径下的年均持有成本：本模型未建模车龄相关的大修跃升，年均成本通常随持有年限继续摊薄，最低点可能落在测算上限；实际决策还需结合车况、新车迭代与用车需求变化。" />
                 </div>
                 <div className="mt-2 grid grid-cols-10 gap-1">
                   {calc.rows.map((r) => (
@@ -612,21 +632,27 @@ export default function SellPanel({
 
               <div className="mt-3 rounded-2xl bg-zinc-900 p-3 text-white sm:p-3.5 dark:bg-zinc-100 dark:text-zinc-900">
                 <div className="text-[13px] text-zinc-400 dark:text-zinc-500">
-                  全周期净支出（第 {calc.sellYear} 年{calc.sellMonth === 12 ? '年末' : ` ${calc.sellMonth} 月`}卖出）
+                  全周期净支出（{salePeriodText(calc.sellYear, calc.sellMonth)} 卖出）
                 </div>
                 <div className="mt-1 text-base font-semibold leading-tight tracking-tight">
-                  <AnimatedAmount value={calc.fullNet} />
+                  {calc.manualMissing ? <span className="opacity-70">待填写卖价</span> : <AnimatedAmount value={calc.fullNet} />}
                 </div>
-                <div className="mt-1.5 flex flex-wrap gap-x-3 text-[13px] leading-relaxed tabular-nums text-zinc-400 dark:text-zinc-500">
-                  <span>年均 {fmtCNY(calc.yearlyAvg)}</span>
-                  <span>每公里 {fmtCNY(calc.perKm)}</span>
-                  <span>到手 {fmtCNY(calc.netProceeds)}</span>
-                </div>
+                {!calc.manualMissing && (
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 text-[13px] leading-relaxed tabular-nums text-zinc-400 dark:text-zinc-500">
+                    <span>年均 {fmtCNY(calc.yearlyAvg)}</span>
+                    <span>每天 {fmtCNY(calc.perDay)}</span>
+                    <span>每公里 {fmtCNY(calc.perKm)}</span>
+                    <span>到手 {fmtCNY(calc.netProceeds)}</span>
+                  </div>
+                )}
               </div>
               <div className="mt-2 space-y-0.5 text-left text-[13px] leading-relaxed tabular-nums text-zinc-500 dark:text-zinc-400">
                 <div>
-                  落地 {fmtCNY(calc.loan.buyTotal)} + 用车 {fmtCNY(calc.ownTotal)} − 到手 {fmtCNY(calc.netProceeds)}
-                  {calc.refund > 0 ? ` − 退保 ${fmtCNY(calc.refund)}` : ''}
+                  {calc.manualMissing
+                    ? '请先填写手动卖价；当前按 0 元估算，结果不具参考意义。'
+                    : `落地 ${fmtCNY(calc.loan.buyTotal)} + 用车 ${fmtCNY(calc.ownTotal)} − 到手 ${fmtCNY(calc.netProceeds)}${
+                        calc.refund > 0 ? ` − 退保 ${fmtCNY(calc.refund)}` : ''
+                      }`}
                 </div>
                 <div>置换/报废/首购/保险补贴已在购车页抵扣；贷款结清余额从卖车款中扣除；折旧已通过卖车款变现。</div>
               </div>
@@ -745,8 +771,9 @@ export default function SellPanel({
           </table>
         </div>
         <p className="px-4 py-2.5 text-[13px] leading-relaxed text-zinc-400 dark:text-zinc-500 sm:px-5">
-          按各年年末整年卖出估算，当前「第 {calc.sellYear} 年{calc.sellMonth === 12 ? '年末' : ` ${calc.sellMonth} 月`}」月份粒度的结果见上方汇总卡；
-          最优卖出年 = 年均持有成本最低的一年，即折旧摊薄与维修抬升的平衡点（实际决策还需考虑车况、新车迭代与用车需求变化）。
+          按各年年末整年卖出估算，当前「{salePeriodText(calc.sellYear, calc.sellMonth)}」月份粒度的结果见上方汇总卡；
+          最优卖出年 = 年均持有成本最低的一年。本模型未建模车龄相关的大修跃升，最低点常落在 10 年测算上限；
+          行业常说的 4–6 年窗口来自维修抬升、新车迭代等模型外因素，需结合实际车况判断。
         </p>
       </section>
 
@@ -786,7 +813,7 @@ export default function SellPanel({
           <ArrowRightLeft size={14} strokeWidth={2} aria-hidden />
           <h3 className="text-sm font-medium">全周期油电对比</h3>
           <span className="text-[13px] text-zinc-400 dark:text-zinc-500">
-            落地价按 2026 政策区分税档（燃油全额/插混减半/纯电免征），能耗保养取各类型默认值
+            落地价按 2026 政策区分税档（燃油全额/插混减半/纯电减半），补贴按各能源类型重算；能耗保养取各类型默认值，对比为各年年末口径
           </span>
         </div>
         <div className="grid gap-2 px-4 pb-4 sm:grid-cols-3 sm:px-5">
@@ -814,7 +841,7 @@ export default function SellPanel({
                   <span className="ml-1 text-[13px] font-normal text-zinc-400 dark:text-zinc-500">年均净支出</span>
                 </div>
                 <div className="mt-0.5 text-[13px] tabular-nums text-zinc-500 dark:text-zinc-400">
-                  第 {calc.sellYear} 年卖出｜最优第 {e.bestYear} 年 · 年均 {fmtCNY(e.bestYearlyAvg)}
+                  第 {calc.sellYear} 年末口径｜最优第 {e.bestYear} 年 · 年均 {fmtCNY(e.bestYearlyAvg)}
                 </div>
               </div>
             );
