@@ -55,7 +55,9 @@ export async function renderPosterPng(
   // 页面上的说明气泡在静态图里没有意义；仓库水印页面已不显示，只在导出图里注入到免责声明行
   clone.querySelectorAll('button[aria-label^="说明："]').forEach((n) => n.remove());
   clone.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
-  const disclaimer = Array.from(clone.querySelectorAll('p')).find((p) => p.textContent?.includes('本测算'));
+  const disclaimer = Array.from(clone.querySelectorAll('p')).find(
+    (p) => p.textContent?.includes('本测算') || p.textContent?.includes('金额均为估算'),
+  );
   if (disclaimer) {
     const mark = document.createElement('a');
     mark.href = 'https://github.com/colflip/carpay';
