@@ -1,8 +1,15 @@
 import { clamp, fmtCNY, num, round2 } from './shared';
-import { computeBuy, remainingPrincipalAt } from './buyModel';
-import type { BuyForm, Calc as BuyCalc } from './buyModel';
+import {
+  computeBuy,
+  firstBuyAmount,
+  policySubsidy,
+  remainingPrincipalAt,
+  type BuyForm,
+  type Calc as BuyCalc,
+} from './buyModel';
 import {
   autoResidualPct,
+  autoResidualPctAt,
   ENERGY_PRESETS,
   energyLabel,
   ownCostCumulative,
@@ -14,12 +21,11 @@ export const SELL_FORM_KEY = 'carpay:sell-form:v1';
 
 export type ResidualMode = 'auto' | 'manual';
 export type ResidualBase = 'taxBase' | 'msrp';
-
 export interface SellForm {
   sellYear: string; // 卖出年份 1-10
   sellMonth: string; // 卖出年内第几月 1-12，12 = 年末整年口径
   residualMode: ResidualMode;
-  residualBase: ResidualBase;
+  residualBase: ResidualBase; // 'taxBase' 为兼容旧存档保留，实际取购车成交价（dealPrice）
   residualRatePct: string | null; // auto 模式手动覆盖残值率（%），null = 按曲线
   manualSalePrice: string; // manual 模式卖价（平台估价/成交价）
   mileageAdjust: boolean; // 里程修正：偏离年均 2 万 km 基准时调整残值
@@ -96,7 +102,9 @@ export function loanAtSale(buyForm: BuyForm, buyCalc: BuyCalc, sellMonth: number
       buyCalc.freeMonths,
       sellMonth,
     ),
-    settleFee: num(buyForm.earlyRepayFee),
+    // 结清手续费沿用购车页「提前还款手续费」：只有设定了提前还款计划才计，
+    // 否则该输入在界面上不可见，却会在卖车时被悄悄扣除
+    settleFee: buyForm.earlyRepayMonth > 0 ? num(buyForm.earlyRepayFee) : 0,
   };
 }
 
@@ -123,23 +131,34 @@ interface PointResult {
 }
 
 function evalPoint(p: PointInput): PointResult {
-  const { total: ownTotal, lastPremium } = ownCostCumulative(p.own, p.yearFrac);
+  const { total: ownTotal, lastPremium, refundPremium } = ownCostCumulative(p.own, p.yearFrac);
   const loan = loanAtSale(p.buyForm, p.buyCalc, p.sellMonthAbs);
   const netProceeds = round2(p.salePrice - loan.settleAtSale - loan.settleFee - p.fees);
   const refund =
     p.monthInYear < 12
-      ? round2(lastPremium * ((12 - p.monthInYear) / 12) * (1 - clamp(p.refundFeePct, 0, 100) / 100))
+      ? round2(refundPremium * ((12 - p.monthInYear) / 12) * (1 - clamp(p.refundFeePct, 0, 100) / 100))
       : 0;
   const fullNet = round2(loan.buyTotal + ownTotal - netProceeds - refund);
   return { ownTotal, lastPremium, loan, salePrice: p.salePrice, netProceeds, refund, fullNet };
 }
 
-// 卖出时点车龄对应的曲线年份档（曲线按整年建表，四舍五入取档）
-export const curveYear = (yearFrac: number): number => clamp(Math.round(yearFrac), 1, 10);
-
 // 各年残值率：锚定残值率（曲线或手动覆盖/手动卖价折算）按曲线比例缩放到其他年份
-function rateForYear(energyType: EnergyType, year: number, anchorYear: number, anchorRatePct: number): number {
-  return round2((anchorRatePct * autoResidualPct(energyType, year)) / autoResidualPct(energyType, anchorYear));
+function rateForYear(
+  energyType: EnergyType,
+  year: number,
+  anchorYearFrac: number,
+  anchorRatePct: number,
+): number {
+  return (anchorRatePct * autoResidualPct(energyType, year)) / autoResidualPctAt(energyType, anchorYearFrac);
+}
+
+// 卖出时点的周期描述：「第 3 年第 6 月」即累计 2 年 6 个月，避免与「3 年 6 个月」混淆
+export function salePeriodText(sellYear: number, sellMonth: number): string {
+  const months = (sellYear - 1) * 12 + sellMonth;
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  const elapsed = m === 0 ? `累计 ${y} 年` : `累计 ${y} 年 ${m} 个月`;
+  return sellMonth === 12 ? `第 ${sellYear} 年末，${elapsed}` : `第 ${sellYear} 年第 ${sellMonth} 月，${elapsed}`;
 }
 
 export interface SellYearRow {
@@ -184,7 +203,9 @@ export interface SellCalc {
   ownTotal: number;
   refund: number;
   fullNet: number;
+  daysHeld: number;
   yearlyAvg: number;
+  perDay: number;
   perKm: number;
   rows: SellYearRow[];
   bestYear: number;
@@ -207,10 +228,11 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
   const sellMonthAbs = (sellYear - 1) * 12 + sellMonth;
   const annualKm = Math.max(0, num(ownForm.annualMileage));
   const totalKm = round2(annualKm * yearFrac);
+  const daysHeld = Math.max(1, Math.round(yearFrac * 365));
 
-  // 残值基数双口径：计税基数（成交价，与用车面板折旧参考一致）或厂商指导价
+  // 残值基数双口径：成交价（与用车面板折旧参考一致）或厂商指导价
   const residualBaseVal =
-    sf.residualBase === 'msrp' ? Math.max(0, num(buyForm.msrp)) : Math.max(0, buyCalc.taxBase);
+    sf.residualBase === 'msrp' ? Math.max(0, num(buyForm.msrp)) : Math.max(0, buyCalc.dealPrice);
 
   const feeItems = [
     { key: 'prep', label: '整备', total: round2(Math.max(0, num(sf.prepFee))) },
@@ -221,26 +243,31 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
   const sellFees = round2(feeItems.reduce((a, i) => a + i.total, 0));
   const refundFeePct = clamp(num(sf.refundFeePct), 0, 100);
 
-  const anchorYear = curveYear(yearFrac);
   const manualPrice = Math.max(0, num(sf.manualSalePrice));
   const manualMissing = sf.residualMode === 'manual' && manualPrice <= 0;
-  // 锚定残值率：手动卖价 ÷ 基数折算，或曲线值（可被残值率覆盖）
+  // 手动覆盖的残值率：空字符串视为未填写（回落到曲线），并夹到 0-100
+  const rateOverride =
+    sf.residualRatePct !== null && sf.residualRatePct.trim() !== ''
+      ? clamp(num(sf.residualRatePct), 0, 100)
+      : null;
+  // 锚定残值率：手动卖价 ÷ 基数折算，或按车龄插值的曲线值（可被残值率覆盖）
   const anchorRatePct =
     sf.residualMode === 'manual'
       ? residualBaseVal > 0
-        ? round2((manualPrice / residualBaseVal) * 100)
+        ? (manualPrice / residualBaseVal) * 100
         : 0
-      : sf.residualRatePct !== null
-        ? clamp(num(sf.residualRatePct), 0, 100)
-        : autoResidualPct(ownForm.energyType, anchorYear);
+      : rateOverride !== null
+        ? rateOverride
+        : autoResidualPctAt(ownForm.energyType, yearFrac);
 
   // 卖价：手动模式直接取输入价（里程已在报价中体现，不做里程修正）；
-  // 自动模式 = 基数 ×（残值率 + 里程修正）
-  const priceAt = (ratePct: number, yf: number, useAdj: boolean): number =>
-    Math.max(
-      0,
-      round2((residualBaseVal * clamp(ratePct + (useAdj ? mileageAdjPct(annualKm, yf) : 0), 0, 100)) / 100),
-    );
+  // 自动模式 = 基数 ×（残值率 + 里程修正），残值率最高 100%；
+  // 手动模式不设 100% 上限：手动卖价高于成交价时（收藏车、低开票），逐年表须与当前卖价保持一致
+  const priceAt = (ratePct: number, yf: number, useAdj: boolean): number => {
+    const raw = Math.max(0, ratePct + (useAdj ? mileageAdjPct(annualKm, yf) : 0));
+    const capped = sf.residualMode === 'manual' ? raw : Math.min(raw, 100);
+    return Math.max(0, round2((residualBaseVal * capped) / 100));
+  };
   const currentSalePrice = sf.residualMode === 'manual' ? manualPrice : priceAt(anchorRatePct, yearFrac, sf.mileageAdjust);
 
   const current = evalPoint({
@@ -265,7 +292,7 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
       yearFrac: y,
       sellMonthAbs: y * 12,
       monthInYear: 12,
-      salePrice: priceAt(rateForYear(ownForm.energyType, y, anchorYear, anchorRatePct), y, sf.mileageAdjust && sf.residualMode === 'auto'),
+      salePrice: priceAt(rateForYear(ownForm.energyType, y, yearFrac, anchorRatePct), y, sf.mileageAdjust && sf.residualMode === 'auto'),
       fees: sellFees,
       refundFeePct,
     });
@@ -296,25 +323,50 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
     };
   });
 
-  // 全周期油电对比（各年年末口径）：购车侧按 2026 政策区分购置税与车船税，
-  // 能耗保养取各类型默认值（与用车面板能源对比同口径），残值用各类型曲线
+  // 全周期油电对比（各年年末口径）：购车侧按 2026 政策区分购置税与车船税
+  // （燃油全额 10%；插混与纯电均减半 5%、减税上限 1.5 万元），
+  // 能耗保养取各类型默认值（与用车面板能源对比同口径），
+  // 政策补贴按各能源类型重新计算（新能源置换/报废比例高于燃油），
+  // 残值：当前能源沿用当前锚定残值率（可含手动卖价），其余能源用各自曲线
   const BUY_BY_ENERGY: Record<EnergyType, Partial<BuyForm>> = {
     gas: { vehicleType: 'fuel', taxRateMode: 'full', purchaseTaxManual: null },
-    phev: { vehicleType: 'nev', taxRateMode: 'half', purchaseTaxManual: null },
-    bev: { vehicleType: 'nev', taxRateMode: 'exempt', purchaseTaxManual: null },
+    phev: { vehicleType: 'phev', taxRateMode: 'half', purchaseTaxManual: null },
+    bev: { vehicleType: 'nev', taxRateMode: 'half', purchaseTaxManual: null },
   };
+  const useMileageAdj = sf.mileageAdjust && sf.residualMode === 'auto';
   const energyCompare = (Object.keys(ENERGY_PRESETS) as EnergyType[]).map((key) => {
     const own = { ...ownForm, ...ENERGY_PRESETS[key], energyType: key } as OwnForm;
-    const buy = {
+    const baseBuy = {
       ...buyForm,
       ...BUY_BY_ENERGY[key],
       vehicleVesselTax: ENERGY_PRESETS[key].vesselTax ?? buyForm.vehicleVesselTax,
+    } as BuyForm;
+    // 政策补贴随车型变化：按该能源类型重算，避免沿用当前车型的补贴金额
+    const prelim = computeBuy(baseBuy);
+    const buy = {
+      ...baseBuy,
+      tradeInSubsidy:
+        buyForm.tradeInMode === 'policy'
+          ? String(policySubsidy('tradeIn', baseBuy.vehicleType, prelim.taxBase).amount)
+          : buyForm.tradeInSubsidy,
+      scrapSubsidy:
+        buyForm.scrapMode === 'policy'
+          ? String(policySubsidy('scrap', baseBuy.vehicleType, prelim.taxBase).amount)
+          : buyForm.scrapSubsidy,
+      firstBuySubsidy:
+        buyForm.firstBuyMode === 'policy'
+          ? String(firstBuyAmount(baseBuy.vehicleType, prelim.taxBase))
+          : buyForm.firstBuySubsidy,
     } as BuyForm;
     const calc = computeBuy(buy);
     let bestAvg = Infinity;
     let bestY = sellYear;
     let currentAvg = 0;
     for (let y = 1; y <= 10; y++) {
+      const rate =
+        key === ownForm.energyType
+          ? rateForYear(key, y, yearFrac, anchorRatePct)
+          : autoResidualPct(key, y);
       const p = evalPoint({
         own,
         buyForm: buy,
@@ -322,7 +374,7 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
         yearFrac: y,
         sellMonthAbs: y * 12,
         monthInYear: 12,
-        salePrice: priceAt(autoResidualPct(key, y), y, sf.mileageAdjust),
+        salePrice: priceAt(rate, y, useMileageAdj),
         fees: sellFees,
         refundFeePct,
       });
@@ -343,7 +395,7 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
     totalKm,
     loan: current.loan,
     residualBaseVal,
-    residualRatePct: anchorRatePct,
+    residualRatePct: round2(anchorRatePct),
     mileageAdj: sf.mileageAdjust && sf.residualMode === 'auto' ? mileageAdjPct(annualKm, yearFrac) : 0,
     salePrice: current.salePrice,
     sellFees,
@@ -352,7 +404,9 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
     ownTotal: current.ownTotal,
     refund: current.refund,
     fullNet: current.fullNet,
+    daysHeld,
     yearlyAvg: round2(current.fullNet / yearFrac),
+    perDay: round2(current.fullNet / daysHeld),
     perKm: totalKm > 0 ? round2(current.fullNet / totalKm) : 0,
     rows,
     bestYear: bestRow.year,
@@ -377,8 +431,8 @@ export function buildSellDetailText(sf: SellForm, c: SellCalc, ctx: SellTextCtx)
           ...(c.manualMissing ? ['注意：未填写手动卖价，按 0 元估算'] : []),
         ]
       : [
-          `模式：自动估算（残值基数：${sf.residualBase === 'msrp' ? '厂商指导价' : '计税基数（成交价）'} ${money(c.residualBaseVal)}）`,
-          `残值率：${c.residualRatePct}%（流通协会保值率曲线${sf.residualRatePct !== null ? '，手动修改' : ''}）${
+          `模式：自动估算（残值基数：${sf.residualBase === 'msrp' ? '厂商指导价' : '成交价'} ${money(c.residualBaseVal)}）`,
+          `残值率：${c.residualRatePct}%（流通协会保值率曲线${sf.residualRatePct !== null && sf.residualRatePct.trim() !== '' ? '，手动修改' : ''}）${
             c.mileageAdj !== 0 ? `｜里程修正 ${c.mileageAdj > 0 ? '+' : ''}${c.mileageAdj}%` : ''
           }`,
           `预估卖价：${money(c.salePrice)}`,
@@ -397,7 +451,7 @@ export function buildSellDetailText(sf: SellForm, c: SellCalc, ctx: SellTextCtx)
       ];
   const lines: string[] = [
     'CarPay · 卖车损益测算明细',
-    `车辆：${ctx.vehicleName}（${energyLabel(ctx.energyType)}｜第 ${c.sellYear} 年第 ${c.sellMonth} 月卖出｜年行驶 ${ctx.annualKm.toLocaleString('zh-CN')} km）`,
+    `车辆：${ctx.vehicleName}（${energyLabel(ctx.energyType)}｜${salePeriodText(c.sellYear, c.sellMonth)}｜年行驶 ${ctx.annualKm.toLocaleString('zh-CN')} km）`,
     '',
     '【口径】置换/报废/首购/保险补贴已在购车测算页抵扣落地总价，不再重复计算；贷款结清余额从卖车款中扣除；折旧通过卖车款变现，不计现金支出。',
     '',
@@ -413,23 +467,23 @@ export function buildSellDetailText(sf: SellForm, c: SellCalc, ctx: SellTextCtx)
     '',
     '【保险退保】',
     c.sellMonth < 12
-      ? `第 ${c.sellMonth} 月卖出：退回在保保单保费 ${money(c.refund)}（手续费率 ${sf.refundFeePct}%，按月估算，实际按天计）`
+      ? `第 ${c.sellMonth} 月卖出：退回在保保单保费 ${money(c.refund)}（手续费率 ${sf.refundFeePct}%，按月估算，实际按天计；交强险随车过户不退）`
       : '按整年卖出，无退保回收（交强险随车过户）',
     '',
     '──────────────',
     `卖车到手价：${money(c.netProceeds)}`,
     `购车落地（截至卖出月）：${money(c.loan.buyTotal)}`,
-    `用车成本（${c.sellYear} 年 ${c.sellMonth} 个月）：${money(c.ownTotal)}`,
+    `用车成本（${salePeriodText(c.sellYear, c.sellMonth)}）：${money(c.ownTotal)}`,
     ...(c.refund > 0 ? [`保险退保回收：-${money(c.refund)}`] : []),
     `全周期净支出：${money(c.fullNet)}`,
-    `年均持有成本：${money(c.yearlyAvg)}｜每公里：${money(c.perKm)}（总里程 ${Math.round(c.totalKm).toLocaleString('zh-CN')} km）`,
+    `年均持有成本：${money(c.yearlyAvg)}｜每天：${money(c.perDay)}｜每公里：${money(c.perKm)}（持有 ${c.daysHeld.toLocaleString('zh-CN')} 天，总里程 ${Math.round(c.totalKm).toLocaleString('zh-CN')} km）`,
     '',
     '【逐年净支出（各年年末卖出口径）】',
     ...c.rows.map(
       (r) =>
         `第 ${r.year} 年：到手 ${money(r.netProceeds)}｜净支出 ${money(r.fullNet)}｜年均 ${money(r.yearlyAvg)}${r.best ? '（最优）' : ''}`,
     ),
-    `最优卖出年：第 ${c.bestYear} 年`,
+    `最优卖出年：第 ${c.bestYear} 年（本模型口径下年均最低点；实际决策还需考虑车况、新车迭代与用车需求变化）`,
     '',
     `生成时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`,
     '由 CarPay 纯前端离线计算生成，仅供参考；实际成交以二手车行情为准。',
