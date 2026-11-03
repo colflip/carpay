@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Landmark,
   Moon,
+  PlugZap,
   ReceiptText,
   RotateCcw,
   Share2,
@@ -39,6 +40,9 @@ import {
   policySubsidy,
   firstBuyRate,
   firstBuyAmount,
+  defaultTaxRateMode,
+  defaultVesselTax,
+  VEHICLE_LABEL,
 } from './buyModel';
 import {
   computeOwn,
@@ -60,6 +64,7 @@ import { renderPosterPng } from './sharePoster';
 import {
   AnimatedAmount,
   clamp,
+  ChipGroup,
   CompositionBar,
   copyText,
   dataUrlToPngFile,
@@ -67,6 +72,7 @@ import {
   fmtCNY,
   FormSection,
   LabelInput,
+  localDateStamp,
   num,
   sanitizeMoney,
   Segmented,
@@ -239,9 +245,9 @@ export default function CarPayCalculator() {
       const a = String(firstBuyAmount(form.vehicleType, calc.taxBase));
       if (form.firstBuySubsidy !== a) upd.firstBuySubsidy = a;
     }
-    // 贷款额度选「全额」时跟随计税基数，车价变化后贷款额同步
+    // 贷款额度选「全额」时跟随成交价，车价变化后贷款额同步
     if (form.paymentMode === 'mortgage' && form.loanAmountMode === 'full') {
-      const a = String(calc.taxBase);
+      const a = String(calc.dealPrice);
       if (form.loanAmount !== a) upd.loanAmount = a;
     }
     if (Object.keys(upd).length) patch(upd);
@@ -250,7 +256,7 @@ export default function CarPayCalculator() {
     form.scrapMode,
     form.firstBuyMode,
     form.vehicleType,
-    calc.taxBase,
+    calc.dealPrice,
     form.tradeInSubsidy,
     form.scrapSubsidy,
     form.firstBuySubsidy,
@@ -284,8 +290,8 @@ export default function CarPayCalculator() {
       patch({
         vehicleType,
         purchaseTaxManual: null,
-        taxRateMode: vehicleType === 'fuel' ? 'full' : 'exempt',
-        vehicleVesselTax: vehicleType === 'fuel' ? '420' : '0',
+        taxRateMode: defaultTaxRateMode(vehicleType),
+        vehicleVesselTax: defaultVesselTax(vehicleType),
       }),
     [patch],
   );
@@ -317,7 +323,7 @@ export default function CarPayCalculator() {
       await copyFallback();
       return;
     }
-    const fileName = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.png`;
+    const fileName = `CarPay-${exportBaseName()}-${localDateStamp()}.png`;
     setShareBusy(true);
     try {
       const probe = new File([new Uint8Array([137])], 'probe.png', { type: 'image/png' });
@@ -348,7 +354,7 @@ export default function CarPayCalculator() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `CarPay-${exportBaseName()}-${localDateStamp()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -361,7 +367,7 @@ export default function CarPayCalculator() {
       if (!dataUrl) return;
       const a = document.createElement('a');
       a.href = dataUrl;
-      a.download = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.png`;
+      a.download = `CarPay-${exportBaseName()}-${localDateStamp()}.png`;
       a.click();
     } catch {
       /* 截图失败时静默退出，可改用导出 txt */
@@ -388,8 +394,12 @@ export default function CarPayCalculator() {
     />
   );
 
+  const taxScopeValues = (['taxOptions', 'taxOfficial', 'taxDealer', 'taxRebate'] as const).filter(
+    (k) => form[k],
+  );
+
   const barParts = [
-    { label: '车价', value: calc.taxBase, cls: 'bg-zinc-800 dark:bg-zinc-300' },
+    { label: '车价', value: calc.dealPrice, cls: 'bg-zinc-800 dark:bg-zinc-300' },
     { label: '税费', value: calc.purchaseTax + calc.vessel, cls: 'bg-amber-500' },
     { label: '保险', value: calc.insuranceTotal, cls: 'bg-sky-500' },
     { label: '杂费', value: calc.feesTotal, cls: 'bg-zinc-400 dark:bg-zinc-600' },
@@ -514,7 +524,7 @@ export default function CarPayCalculator() {
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                           <div className="flex shrink-0 items-center gap-1.5">
                             <span className="text-sm text-zinc-700 dark:text-zinc-300">车辆类型</span>
-                            <Tip text="决定购置税与车船税的默认档位：燃油车全额 10%、车船税 420 元；新能源车默认免征、车船税 0 元。2026–2027 年新能源减半征收，购置税处可切换档位。" />
+                            <Tip text="决定购置税与车船税的默认档位：燃油车全额 10%、车船税 420 元；插混/增程与纯电按 2026-2027 年新能源政策减半 5%（减税上限 1.5 万元/辆），纯电另免车船税，插混按排量计征。" />
                           </div>
                           <Segmented
                             className="ml-auto"
@@ -524,7 +534,8 @@ export default function CarPayCalculator() {
                             onChange={setVehicleType}
                             options={[
                               { value: 'fuel', label: '燃油', icon: Fuel },
-                              { value: 'nev', label: '新能源', icon: Zap },
+                              { value: 'phev', label: '插混', icon: PlugZap },
+                              { value: 'nev', label: '纯电', icon: Zap },
                             ]}
                           />
                         </div>
@@ -553,7 +564,7 @@ export default function CarPayCalculator() {
                           <LabelInput
                             id="officialDiscount"
                             label="官方优惠"
-                            tip="厂家直降、官方限时优惠，冲减开票价与计税基数。"
+                            tip="厂家直降、官方限时优惠，冲减成交价；是否同时冲减开票价可在下方计税口径中选择。"
                             value={form.officialDiscount}
                             onChange={(v) => setMoney('officialDiscount', v)}
                           />
@@ -562,7 +573,7 @@ export default function CarPayCalculator() {
                           <LabelInput
                             id="dealerDiscount"
                             label="门店优惠"
-                            tip="经销商让利与谈定的现金优惠，冲减开票价与计税基数。"
+                            tip="经销商让利与谈定的现金优惠，冲减成交价；是否同时冲减开票价可在下方计税口径中选择。"
                             value={form.dealerDiscount}
                             onChange={(v) => setMoney('dealerDiscount', v)}
                           />
@@ -571,7 +582,7 @@ export default function CarPayCalculator() {
                           <LabelInput
                             id="loanRebate"
                             label="金融返点"
-                            tip="贷款渠道返还的佣金，冲减开票价与计税基数，并同额减少首付与贷款本金；全款购车不适用。"
+                            tip="贷款渠道返还的佣金，冲减成交价；是否同时冲减开票价可在下方计税口径中选择，默认抵扣。全款购车不适用。"
                             muted={!calc.isLoan}
                             disabled={!calc.isLoan}
                             value={form.loanRebate}
@@ -580,12 +591,42 @@ export default function CarPayCalculator() {
                         </div>
                         <div className="flex items-center justify-between rounded-xl bg-zinc-100/80 px-3 py-2 dark:bg-zinc-800/50">
                           <span className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400">
-                            计税基数（开票价）
-                            <Tip text="裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是购置税、首付与月供的计算基数；低于税务系统最低计税价时按最低计税价核定，低开发票存在补税风险。" />
+                            成交价（实际车价）
+                            <Tip text="裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是首付、月供与卖车残值的计算基数。" />
                           </span>
                           <span className="text-[15px] font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                            {fmtCNY(calc.taxBase)}
+                            {fmtCNY(calc.dealPrice)}
                           </span>
+                        </div>
+                        <div className="py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400">
+                              计税基数（开票价）
+                              <Tip text="开票价只用于购置税与以旧换新补贴；可手动选择哪些项目进入发票——发票外优惠/返点不计入时开票价会高于成交价，选装不计入时则更低。低于税务系统最低计税价时按最低计税价核定，低开发票存在补税风险。" />
+                            </span>
+                            <span className="text-[15px] font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                              {fmtCNY(calc.taxBase)}
+                              {calc.taxBase !== calc.dealPrice && (
+                                <span className="ml-1.5 text-[12px] font-normal text-amber-600 dark:text-amber-400">
+                                  已按计税口径调整
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                            <span className="text-[13px] text-zinc-500 dark:text-zinc-400">计税口径</span>
+                            <ChipGroup
+                              ariaLabel="计税基数口径"
+                              values={taxScopeValues}
+                              onToggle={(k) => patch({ [k]: !form[k] } as Partial<BuyForm>)}
+                              options={[
+                                { value: 'taxOptions', label: '选装计入' },
+                                { value: 'taxOfficial', label: '官方优惠抵扣' },
+                                { value: 'taxDealer', label: '门店优惠抵扣' },
+                                { value: 'taxRebate', label: '金融返点抵扣', disabled: !calc.isLoan },
+                              ]}
+                            />
+                          </div>
                         </div>
                       </FormSection>
 
@@ -594,7 +635,11 @@ export default function CarPayCalculator() {
                           <LabelInput
                             id="purchaseTax"
                             label="购置税"
-                            tip="档位税率：全额 10%、减半 5%、免征 0；购置税 = 计税基数 ÷ 1.13 × 税率，减半档已含新能源 2026–2027 年每辆 1.5 万元减税上限，换电车型按不含电池价格计税；可手动改写，改写后框内按钮可恢复自动计算。"
+                            tip={`档位税率：全额 10%、减半 5%、免征 0；购置税 = 计税基数 ÷ 1.13 × 税率。2026-2027 年新能源乘用车（含插混/增程、纯电）默认减半，每辆减税上限 1.5 万元；免征档适用于 2025 年及以前购置。换电车型按不含电池价格计税；可手动改写，改写后框内按钮可恢复自动计算。${
+                              form.vehicleType !== 'fuel' && form.taxRateMode === 'exempt'
+                                ? ' 注意：当前新能源车选择了免征档，若为 2026 年及以后购置，请切换为减半。'
+                                : ''
+                            }`}
                             badge={taxManualBadge}
                             controls={taxRateChips}
                             after={
@@ -693,21 +738,27 @@ export default function CarPayCalculator() {
                                 groupId="carpay-tradein"
                                 ariaLabel="置换补贴快捷选项"
                                 value={form.tradeInMode === 'policy' ? 'policy' : form.tradeInSubsidy}
-                                onChange={(m) =>
-                                  m === 'policy'
-                                    ? patch({
-                                        tradeInMode: 'policy',
-                                        tradeInSubsidy: String(
-                                          policySubsidy('tradeIn', form.vehicleType, calc.taxBase).amount,
-                                        ),
-                                      })
-                                    : patch({
-                                        tradeInMode: 'manual',
-                                        tradeInSubsidy: m === form.tradeInSubsidy ? form.tradeInSubsidy : m,
-                                      })
-                                }
+                                onChange={(m) => {
+                                  if (m !== 'policy') {
+                                    patch({
+                                      tradeInMode: 'manual',
+                                      tradeInSubsidy: m === form.tradeInSubsidy ? '' : m,
+                                    });
+                                    return;
+                                  }
+                                  if (form.tradeInMode === 'policy') {
+                                    patch({ tradeInMode: 'manual', tradeInSubsidy: '' });
+                                    return;
+                                  }
+                                  patch({
+                                    tradeInMode: 'policy',
+                                    tradeInSubsidy: String(
+                                      policySubsidy('tradeIn', form.vehicleType, calc.taxBase).amount,
+                                    ),
+                                  });
+                                }}
                                 options={[
-                                  { value: 'policy', label: `${form.vehicleType === 'nev' ? 8 : 6}%` },
+                                  { value: 'policy', label: `${form.vehicleType === 'fuel' ? 6 : 8}%` },
                                 ]}
                               />
                             }
@@ -725,21 +776,27 @@ export default function CarPayCalculator() {
                                 groupId="carpay-scrap"
                                 ariaLabel="报废补贴快捷选项"
                                 value={form.scrapMode === 'policy' ? 'policy' : form.scrapSubsidy}
-                                onChange={(m) =>
-                                  m === 'policy'
-                                    ? patch({
-                                        scrapMode: 'policy',
-                                        scrapSubsidy: String(
-                                          policySubsidy('scrap', form.vehicleType, calc.taxBase).amount,
-                                        ),
-                                      })
-                                    : patch({
-                                        scrapMode: 'manual',
-                                        scrapSubsidy: m === form.scrapSubsidy ? form.scrapSubsidy : m,
-                                      })
-                                }
+                                onChange={(m) => {
+                                  if (m !== 'policy') {
+                                    patch({
+                                      scrapMode: 'manual',
+                                      scrapSubsidy: m === form.scrapSubsidy ? '' : m,
+                                    });
+                                    return;
+                                  }
+                                  if (form.scrapMode === 'policy') {
+                                    patch({ scrapMode: 'manual', scrapSubsidy: '' });
+                                    return;
+                                  }
+                                  patch({
+                                    scrapMode: 'policy',
+                                    scrapSubsidy: String(
+                                      policySubsidy('scrap', form.vehicleType, calc.taxBase).amount,
+                                    ),
+                                  });
+                                }}
                                 options={[
-                                  { value: 'policy', label: `${form.vehicleType === 'nev' ? 12 : 10}%` },
+                                  { value: 'policy', label: `${form.vehicleType === 'fuel' ? 10 : 12}%` },
                                 ]}
                               />
                             }
@@ -758,10 +815,12 @@ export default function CarPayCalculator() {
                                 ariaLabel="首购补贴快捷选项"
                                 value={form.firstBuyMode === 'policy' ? 'policy' : form.firstBuySubsidy}
                                 onChange={() =>
-                                  patch({
-                                    firstBuyMode: 'policy',
-                                    firstBuySubsidy: String(firstBuyAmount(form.vehicleType, calc.taxBase)),
-                                  })
+                                  form.firstBuyMode === 'policy'
+                                    ? patch({ firstBuyMode: 'manual', firstBuySubsidy: '' })
+                                    : patch({
+                                        firstBuyMode: 'policy',
+                                        firstBuySubsidy: String(firstBuyAmount(form.vehicleType, calc.taxBase)),
+                                      })
                                 }
                                 options={[{ value: 'policy', label: `${firstBuyRate(form.vehicleType)}%` }]}
                               />
@@ -782,7 +841,7 @@ export default function CarPayCalculator() {
                                 groupId="carpay-ins"
                                 ariaLabel="保险补贴快捷选项"
                                 value={form.insuranceSubsidy}
-                                onChange={(m) => setMoney('insuranceSubsidy', m === form.insuranceSubsidy ? form.insuranceSubsidy : m)}
+                                onChange={(m) => setMoney('insuranceSubsidy', m === form.insuranceSubsidy ? '' : m)}
                                 options={[
                                   { value: '950', label: '¥950' },
                                   { value: '2000', label: '¥2000' },
@@ -793,6 +852,16 @@ export default function CarPayCalculator() {
                             onChange={(v) => setMoney('insuranceSubsidy', v)}
                           />
                         </div>
+                        {calc.tradeIn > 0 && calc.scrap > 0 && (
+                          <p className="pt-2 text-[13px] leading-relaxed text-amber-600 dark:text-amber-400">
+                            置换与报废补贴每年限享其一，请二选一后再计算。
+                          </p>
+                        )}
+                        {calc.subsNonLoan > calc.dealPrice && (
+                          <p className="pt-2 text-[13px] leading-relaxed text-amber-600 dark:text-amber-400">
+                            补贴合计已超过成交价，落地总价会为负，请核对金额。
+                          </p>
+                        )}
                       </FormSection>
 
                       <FormSection icon={CreditCard} title="付款方式">
@@ -830,7 +899,7 @@ export default function CarPayCalculator() {
                                   <LabelInput
                                     id="downPct"
                                     label="首付比例"
-                                    tip="首付占计税基数的比例，其余部分为贷款本金。"
+                                    tip="首付占成交价的比例，其余部分为贷款本金。"
                                     prefix={null}
                                     suffix="%"
                                     value={form.downPaymentPct}
@@ -876,7 +945,7 @@ export default function CarPayCalculator() {
                                   <LabelInput
                                     id="loanAmount"
                                     label="贷款额度"
-                                    tip="固定贷款本金，不超过计税基数；首付 = 计税基数 − 贷款额。「全额」按计税基数贷满，首付为 0。"
+                                    tip="固定贷款本金，不超过成交价；首付 = 成交价 − 贷款额。「全额」按成交价贷满，首付为 0。"
                                     value={form.loanAmount}
                                     controls={
                                       <ToggleGroup
@@ -887,7 +956,7 @@ export default function CarPayCalculator() {
                                           m === 'full'
                                             ? patch({
                                                 loanAmountMode: 'full',
-                                                loanAmount: String(calc.taxBase),
+                                                loanAmount: String(calc.dealPrice),
                                               })
                                             : patch({ loanAmountMode: 'manual', loanAmount: m })
                                         }
@@ -902,6 +971,11 @@ export default function CarPayCalculator() {
                                     }
                                     onChange={(v) =>
                                       patch({ loanAmountMode: 'manual', loanAmount: sanitizeMoney(v) })
+                                    }
+                                    onBlur={() =>
+                                      patch({
+                                        loanAmount: String(clamp(num(form.loanAmount), 0, calc.dealPrice)),
+                                      })
                                     }
                                   />
                                 </div>
@@ -1021,10 +1095,12 @@ export default function CarPayCalculator() {
                           <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-zinc-200 px-2 py-0.5 text-[13px] text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                             {form.vehicleType === 'fuel' ? (
                               <Fuel size={11} strokeWidth={2} aria-hidden />
+                            ) : form.vehicleType === 'phev' ? (
+                              <PlugZap size={11} strokeWidth={2} aria-hidden />
                             ) : (
                               <Zap size={11} strokeWidth={2} aria-hidden />
                             )}
-                            {form.vehicleType === 'fuel' ? '燃油' : '新能源'}
+                            {VEHICLE_LABEL[form.vehicleType]}
                           </span>
                         </div>
                         <CompositionBar parts={barParts} />
@@ -1033,26 +1109,32 @@ export default function CarPayCalculator() {
                       <div className="divide-y divide-zinc-100 border-t border-zinc-100 px-4 sm:px-9 dark:divide-zinc-800/70 dark:border-zinc-800/70">
                         <SummaryGroup icon={Banknote} title="车价">
                           <SummaryRow label="裸车原价" tip="厂商指导裸车原价，不含选装与税费。" value={fmtCNY(num(form.msrp))} />
-                          <SummaryRow label="选装包" tip="计入开票价，随车价计税。" value={fmtCNY(num(form.optionsFee), true)} tone="plus" />
-                          <SummaryRow label="官方优惠" tip="厂家直降，冲减计税基数。" value={deductCNY(num(form.officialDiscount))} tone="minus" />
-                          <SummaryRow label="门店优惠" tip="经销商让利，冲减计税基数。" value={deductCNY(num(form.dealerDiscount))} tone="minus" />
+                          <SummaryRow label="选装包" tip="计入成交价；可在计税口径中选择是否计入开票价。" value={fmtCNY(num(form.optionsFee), true)} tone="plus" />
+                          <SummaryRow label="官方优惠" tip="厂家直降，冲减成交价；是否同时冲减开票价见计税口径。" value={deductCNY(num(form.officialDiscount))} tone="minus" />
+                          <SummaryRow label="门店优惠" tip="经销商让利，冲减成交价；是否同时冲减开票价见计税口径。" value={deductCNY(num(form.dealerDiscount))} tone="minus" />
                           {calc.isLoan && (
                             <SummaryRow
                               label="金融返点"
-                              tip="冲减开票价与计税基数。"
+                              tip="贷款渠道返还的佣金，冲减成交价；是否同时冲减开票价见计税口径。"
                               value={deductCNY(calc.rebate)}
                               tone={calc.rebate > 0 ? 'minus' : 'muted'}
                             />
                           )}
                           <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-dashed border-zinc-200 pt-2 text-[15px] dark:border-zinc-700/70">
                             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-300">
-                              计税基数（开票价）
-                              <Tip text="裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是购置税、首付与月供的计算基数。" />
+                              成交价（车价）
+                              <Tip text="裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是首付、月供与卖车残值的计算基数。" />
                             </span>
                             <span className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                              {fmtCNY(calc.taxBase)}
+                              {fmtCNY(calc.dealPrice)}
                             </span>
                           </div>
+                          <SummaryRow
+                            label="计税基数（开票价）"
+                            tip="只用于购置税与以旧换新补贴；首付、月供与残值按成交价。可在车价构成区手动选择哪些项目进入开票价。"
+                            value={`${fmtCNY(calc.taxBase)}${calc.taxBase !== calc.dealPrice ? ' · 已调整' : ''}`}
+                            tone="muted"
+                          />
                         </SummaryGroup>
 
                         <SummaryGroup icon={ReceiptText} title="税费与保险">
@@ -1064,7 +1146,7 @@ export default function CarPayCalculator() {
                           />
                           <SummaryRow
                             label="车船税"
-                            tip="随交强险代收，按排量分档、各省不同；纯电动免征。"
+                            tip="随交强险代收，按排量分档、各省不同；纯电动免征，插混按排量计征。"
                             value={fmtCNY(calc.vessel)}
                           />
                           <SummaryRow label="交强险" tip="首年保费，家用 6 座以下常见 950 元。" value={fmtCNY(calc.compulsory)} />
@@ -1079,17 +1161,17 @@ export default function CarPayCalculator() {
                         {calc.isLoan && (
                           <SummaryGroup icon={CreditCard} title={`${loanLabel}方案（等额本息）`}>
                             <SummaryRow
-                              label={form.paymentMode === 'finance' ? `首付（${calc.pct}%）` : '首付（计税基数 − 贷款额）'}
+                              label={form.paymentMode === 'finance' ? `首付（${calc.pct}%）` : '首付（成交价 − 贷款额）'}
                               tip={
                                 form.paymentMode === 'finance'
-                                  ? '首付 = 计税基数 × 首付比例。'
-                                  : '首付 = 计税基数 − 固定贷款额。'
+                                  ? '首付 = 成交价 × 首付比例。'
+                                  : '首付 = 成交价 − 固定贷款额。'
                               }
                               value={fmtCNY(calc.down)}
                             />
                             <SummaryRow
                               label="贷款本金"
-                              tip={form.paymentMode === 'finance' ? '贷款本金 = 计税基数 − 首付。' : '固定贷款额，不超过计税基数。'}
+                              tip={form.paymentMode === 'finance' ? '贷款本金 = 成交价 − 首付。' : '固定贷款额，不超过成交价。'}
                               value={fmtCNY(calc.principal)}
                             />
                             {calc.freeMonths > 0 && (
@@ -1208,7 +1290,7 @@ export default function CarPayCalculator() {
                           <div>
                             {calc.isLoan
                               ? `首付 ${fmtCNY(calc.down)} + 月供 ${fmtCNY(calc.monthly)} × ${calc.earlyRepay ? calc.earlySettleMonth : calc.months} 期 + 结清、税费、保险、杂费 − 补贴（金融返点已冲减车价）`
-                              : `车价 ${fmtCNY(calc.taxBase)} + 税费 ${fmtCNY(calc.purchaseTax + calc.vessel)} + 保险 ${fmtCNY(calc.insuranceTotal)} + 杂费 ${fmtCNY(calc.feesTotal)} − 补贴`}
+                              : `车价 ${fmtCNY(calc.dealPrice)} + 税费 ${fmtCNY(calc.purchaseTax + calc.vessel)} + 保险 ${fmtCNY(calc.insuranceTotal)} + 杂费 ${fmtCNY(calc.feesTotal)} − 补贴`}
                           </div>
                           {calc.isLoan && (
                             <div>
@@ -1323,7 +1405,6 @@ export default function CarPayCalculator() {
                   className="text-[15px] text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition-colors hover:text-zinc-800 dark:text-zinc-400 dark:decoration-zinc-600 dark:hover:text-zinc-200"
                 >
                   {s.label}
-                  {s.label}
                 </a>
               ))}
           </div>
@@ -1370,9 +1451,13 @@ export default function CarPayCalculator() {
                   : `全周期净支出（第 ${sellCalc.sellYear} 年${sellCalc.sellMonth === 12 ? '年末' : ` ${sellCalc.sellMonth} 月`}卖出）`}
             </span>
             <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-              <AnimatedAmount
-                value={tab === 'buy' ? calc.total : tab === 'own' ? ownCalc.monthlyAvg : sellCalc.fullNet}
-              />
+              {tab === 'sell' && sellCalc.manualMissing ? (
+                <span className="text-sm opacity-70">待填写卖价</span>
+              ) : (
+                <AnimatedAmount
+                  value={tab === 'buy' ? calc.total : tab === 'own' ? ownCalc.monthlyAvg : sellCalc.fullNet}
+                />
+              )}
             </span>
           </span>
           <span className="flex shrink-0 items-center gap-0.5 text-[13px] text-zinc-400 dark:text-zinc-500">
