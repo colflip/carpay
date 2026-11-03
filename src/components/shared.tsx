@@ -54,8 +54,11 @@ function upperInt(n: number): string {
     const g = groups[i];
     if (g === 0) continue;
     out += upperFourDigits(g) + CN_GROUP[i];
-    const next = groups.slice(0, i).find((v) => v > 0);
-    if (next !== undefined && next < 1000) out += '零';
+    // 向下一个非零组看：若中间隔着整组零（如 1 亿 + 0 万 + 1 千），
+    // 或下一组不足千位（如 100 万 + 500），都需要补一个「零」
+    let j = i - 1;
+    while (j >= 0 && groups[j] === 0) j -= 1;
+    if (j >= 0 && (i - j > 1 || groups[j] < 1000)) out += '零';
   }
   return out;
 }
@@ -64,7 +67,7 @@ export function toCNUpper(amount: number): string {
   if (!Number.isFinite(amount) || amount <= 0) return '';
   const cents = Math.round(amount * 100);
   const int = Math.floor(cents / 100);
-  if (int > 1e12) return '';
+  if (int >= 1e12) return '';
   const jiao = Math.floor((cents % 100) / 10);
   const fen = cents % 10;
   let s = int > 0 ? upperInt(int) + '元' : '';
@@ -83,6 +86,13 @@ export const sanitizeMoney = (v: string): string => {
   const i = t.indexOf('.');
   if (i >= 0) t = t.slice(0, i + 1) + t.slice(i + 1).replace(/\./g, '').slice(0, 2);
   return t;
+};
+
+// 导出文件名用本地日期，避免 UTC+8 凌晨被 toISOString 记成前一天
+export const localDateStamp = (): string => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
 export const dataUrlToPngFile = (dataUrl: string, name: string): File => {
@@ -423,6 +433,42 @@ export function Segmented<T extends string>({
               {Icon && <Icon size={14} strokeWidth={2} aria-hidden className="max-sm:hidden" />}
               {o.label}
             </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ChipGroup<T extends string>({
+  values,
+  onToggle,
+  options,
+  ariaLabel,
+}: {
+  values: T[];
+  onToggle: (v: T) => void;
+  options: { value: T; label: string; disabled?: boolean }[];
+  ariaLabel: string;
+}) {
+  return (
+    <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-1.5">
+      {options.map((o) => {
+        const active = values.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={active}
+            disabled={o.disabled}
+            onClick={() => onToggle(o.value)}
+            className={`flex h-7 items-center rounded-lg border px-2 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm ${
+              active
+                ? 'border-emerald-500/60 bg-emerald-500/10 font-medium text-emerald-700 dark:border-emerald-400/50 dark:bg-emerald-400/10 dark:text-emerald-300'
+                : 'border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400 dark:hover:text-zinc-200'
+            }`}
+          >
+            {o.label}
           </button>
         );
       })}
