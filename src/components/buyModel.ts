@@ -2,9 +2,26 @@ import { clamp, fmtCNY, num, round2 } from './shared';
 
 export const FORM_KEY = 'carpay:buy-form:v1';
 
-export type VehicleType = 'fuel' | 'nev';
+export type VehicleType = 'fuel' | 'phev' | 'nev';
+export type PolicyVehicleType = 'fuel' | 'nev';
 export type PaymentMode = 'full' | 'finance' | 'mortgage';
 export type TaxRateMode = 'full' | 'half' | 'exempt';
+
+// 车辆类型展示名与默认档位（2026 政策：新能源乘用车购置税减半征收，减税额上限 1.5 万元/辆）
+export const VEHICLE_LABEL: Record<VehicleType, string> = {
+  fuel: '燃油车',
+  phev: '插混/增程车',
+  nev: '纯电车',
+};
+
+// 以旧换新与首购补贴的政策口径只有「燃油 / 新能源」两档，插混与纯电同属新能源
+export const policyVehicle = (v: VehicleType): PolicyVehicleType => (v === 'fuel' ? 'fuel' : 'nev');
+
+// 新车购置的默认购置税档位：2026-01-01 起新能源减半征收（2024-2025 才是免征）
+export const defaultTaxRateMode = (v: VehicleType): TaxRateMode => (v === 'fuel' ? 'full' : 'half');
+
+// 新车购置的默认车船税：纯电免征，燃油与插混按排量计征
+export const defaultVesselTax = (v: VehicleType): string => (v === 'nev' ? '0' : '420');
 
 export interface BuyForm {
   modelName: string;
@@ -15,6 +32,11 @@ export interface BuyForm {
   officialDiscount: string;
   dealerDiscount: string;
   loanRebate: string;
+  // 计税口径（开票价）：选装是否计入、官方/门店优惠与金融返点是否冲减开票价
+  taxOptions: boolean;
+  taxOfficial: boolean;
+  taxDealer: boolean;
+  taxRebate: boolean;
   tradeInSubsidy: string;
   tradeInMode: 'manual' | 'policy';
   scrapSubsidy: string;
@@ -40,6 +62,8 @@ export interface BuyForm {
 }
 
 export interface Calc {
+  dealPrice: number;
+  dealPriceFull: number;
   taxBase: number;
   taxAuto: number;
   purchaseTax: number;
@@ -92,7 +116,7 @@ export function policySubsidy(
   vehicleType: VehicleType,
   taxBase: number,
 ): { amount: number; label: string } {
-  const rule = POLICY_2026[kind][vehicleType];
+  const rule = POLICY_2026[kind][policyVehicle(vehicleType)];
   const amount = Math.min(round2(taxBase * rule.rate), rule.cap);
   const capText = `封顶 ${(rule.cap / 10000).toFixed(1).replace('.0', '')} 万元`;
   return {
@@ -108,11 +132,11 @@ export const FIRST_BUY_2026 = {
 } as const;
 
 export function firstBuyRate(vehicleType: VehicleType): number {
-  return Math.round(FIRST_BUY_2026[vehicleType].rate * 100);
+  return Math.round(FIRST_BUY_2026[policyVehicle(vehicleType)].rate * 100);
 }
 
 export function firstBuyAmount(vehicleType: VehicleType, taxBase: number): number {
-  const rule = FIRST_BUY_2026[vehicleType];
+  const rule = FIRST_BUY_2026[policyVehicle(vehicleType)];
   return Math.min(round2(taxBase * rule.rate), rule.cap);
 }
 
@@ -125,6 +149,10 @@ export const DEFAULT_FORM: BuyForm = {
   officialDiscount: '10000',
   dealerDiscount: '5000',
   loanRebate: '0',
+  taxOptions: true,
+  taxOfficial: true,
+  taxDealer: true,
+  taxRebate: true,
   tradeInSubsidy: '',
   tradeInMode: 'manual',
   scrapSubsidy: '',
@@ -187,11 +215,23 @@ export function remainingPrincipalAt(
 
 export function computeBuy(f: BuyForm): Calc {
   const isLoan = f.paymentMode !== 'full';
+  const msrp = num(f.msrp);
+  const options = num(f.optionsFee);
+  const official = num(f.officialDiscount);
+  const dealer = num(f.dealerDiscount);
   const rebate = isLoan ? num(f.loanRebate) : 0;
-  const grossPrice =
-    num(f.msrp) + num(f.optionsFee) - num(f.officialDiscount) - num(f.dealerDiscount);
-  const taxBase = Math.max(0, grossPrice - rebate);
-  const taxBaseFull = Math.max(0, grossPrice);
+  // 成交价：实际车价（指导价 + 选装 − 官方/门店优惠 − 金融返点），用于首付、月供与残值
+  const grossPrice = msrp + options - official - dealer;
+  const dealPrice = Math.max(0, grossPrice - rebate);
+  const dealPriceFull = Math.max(0, grossPrice);
+  // 计税基数（开票价）：单独按用户选择的计税口径计算，用于购置税与补贴，可与成交价不同
+  const taxGross =
+    msrp +
+    (f.taxOptions ? options : 0) -
+    (f.taxOfficial ? official : 0) -
+    (f.taxDealer ? dealer : 0);
+  const taxBase = Math.max(0, taxGross - (isLoan && f.taxRebate ? rebate : 0));
+  const taxBaseFull = Math.max(0, taxGross);
   // 减半档按新能源 2026-2027 政策：每辆减税额上限 1.5 万
   const applyTaxCap = (gross: number): number =>
     f.taxRateMode === 'exempt' ? 0 : f.taxRateMode === 'half' ? round2(Math.max(gross * 0.5, gross - 15000)) : gross;
@@ -210,9 +250,9 @@ export function computeBuy(f: BuyForm): Calc {
   const insuranceTotal = compulsory + commercial;
   const feesTotal = plate + service;
   const subsNonLoan = tradeIn + scrap + firstBuy + insuranceSubsidy;
-  const baseTotal = taxBase + purchaseTax + vessel + insuranceTotal + feesTotal;
+  const baseTotal = dealPrice + purchaseTax + vessel + insuranceTotal + feesTotal;
   const fullTotal = round2(
-    taxBaseFull +
+    dealPriceFull +
       (f.purchaseTaxManual !== null ? num(f.purchaseTaxManual) : taxAutoFull) +
       vessel +
       insuranceTotal +
@@ -228,9 +268,9 @@ export function computeBuy(f: BuyForm): Calc {
   const earlyRepay = isLoan && earlySettleMonth > 0 && earlySettleMonth < months;
   const earlyFee = earlyRepay ? num(f.earlyRepayFee) : 0;
   const fixedMode = f.paymentMode === 'mortgage';
-  const fixedLoan = fixedMode ? clamp(num(f.loanAmount), 0, taxBase) : 0;
-  const down = round2(fixedMode ? taxBase - fixedLoan : taxBase * (pct / 100));
-  const principal = round2(fixedMode ? fixedLoan : Math.max(0, taxBase - down));
+  const fixedLoan = fixedMode ? clamp(num(f.loanAmount), 0, dealPrice) : 0;
+  const down = round2(fixedMode ? dealPrice - fixedLoan : dealPrice * (pct / 100));
+  const principal = round2(fixedMode ? fixedLoan : Math.max(0, dealPrice - down));
   const monthly = round2(annuityMonthly(principal, rate, months, freeMonths));
   const settleAmount = earlyRepay ? remainingPrincipalAt(principal, monthly, rate, freeMonths, earlySettleMonth) : 0;
   const paidMonths = earlyRepay ? earlySettleMonth : months;
@@ -241,6 +281,8 @@ export function computeBuy(f: BuyForm): Calc {
   );
 
   return {
+    dealPrice,
+    dealPriceFull,
     taxBase,
     taxAuto,
     purchaseTax,
@@ -284,19 +326,23 @@ export function loadBuyForm(): BuyForm {
     const s = (k: keyof BuyForm): string | null => (typeof p[k] === 'string' ? (p[k] as string) : null);
     const months =
       typeof p.months === 'number' && MONTH_OPTIONS.includes(p.months) ? p.months : d.months;
+    const vehicleType: VehicleType =
+      p.vehicleType === 'phev' || p.vehicleType === 'nev' ? p.vehicleType : 'fuel';
     return {
       modelName: s('modelName') ?? d.modelName,
-      vehicleType: p.vehicleType === 'nev' ? 'nev' : 'fuel',
+      vehicleType,
       taxRateMode:
         p.taxRateMode === 'full' || p.taxRateMode === 'half' || p.taxRateMode === 'exempt'
           ? p.taxRateMode
-          : p.vehicleType === 'nev'
-            ? 'exempt'
-            : 'full',
+          : defaultTaxRateMode(vehicleType),
       msrp: s('msrp') ?? d.msrp,
       optionsFee: s('optionsFee') ?? d.optionsFee,
       officialDiscount: s('officialDiscount') ?? d.officialDiscount,
       dealerDiscount: s('dealerDiscount') ?? d.dealerDiscount,
+      taxOptions: p.taxOptions !== false,
+      taxOfficial: p.taxOfficial !== false,
+      taxDealer: p.taxDealer !== false,
+      taxRebate: p.taxRebate !== false,
       loanRebate:
         (typeof p.loanRebate === 'string' ? p.loanRebate : null) ??
         (typeof p.loanSubsidy === 'string' ? p.loanSubsidy : null) ??
@@ -342,21 +388,31 @@ export function loadBuyForm(): BuyForm {
 
 export function buildDetailText(f: BuyForm, c: Calc): string {
   const money = (n: number) => fmtCNY(n);
+  // 计税口径：哪些项目进入开票价（用于购置税与补贴），与成交价口径分开说明
+  const taxScope = [
+    '厂商指导裸车原价',
+    ...(f.taxOptions ? ['+ 选装包'] : ['（选装包不计入开票价）']),
+    ...(f.taxOfficial ? ['− 官方优惠'] : ['（官方优惠不冲减开票价）']),
+    ...(f.taxDealer ? ['− 门店优惠'] : ['（门店优惠不冲减开票价）']),
+    ...(c.isLoan ? (f.taxRebate ? ['− 金融返点'] : ['（金融返点不冲减开票价）']) : []),
+  ].join(' ');
   const lines: string[] = [
     'CarPay · 购车落地测算明细',
-    `车型：${f.modelName.trim() || '未命名车辆'}（${f.vehicleType === 'fuel' ? '燃油车' : '新能源车'}｜${c.isLoan ? (f.paymentMode === 'finance' ? '首付分期' : '额度贷款') : '全款'}）`,
+    `车型：${f.modelName.trim() || '未命名车辆'}（${VEHICLE_LABEL[f.vehicleType]}｜${c.isLoan ? (f.paymentMode === 'finance' ? '首付分期' : '额度贷款') : '全款'}）`,
     '',
     '【车价构成】',
     `厂商指导裸车原价：${money(num(f.msrp))}`,
     `选装包：${fmtCNY(num(f.optionsFee), true)}`,
     `官方优惠：−${money(num(f.officialDiscount))}`,
     `门店优惠：−${money(num(f.dealerDiscount))}`,
-    ...(c.isLoan ? [`金融返点：−${money(c.rebate)}（冲减开票价与计税基数）`] : []),
+    ...(c.isLoan ? [`金融返点：−${money(c.rebate)}（冲减成交价）`] : []),
+    `成交价（实际车价）：${money(c.dealPrice)}`,
     `计税基数（开票价）：${money(c.taxBase)}`,
+    `计税口径：${taxScope}`,
     '',
     '【税费与保险】',
     `购置税：${money(c.purchaseTax)}（${f.taxRateMode === 'full' ? '全额 10%' : f.taxRateMode === 'half' ? '减半 5%，减税上限 1.5 万元' : '免征'}${f.purchaseTaxManual !== null ? '，手动改写' : '，自动计算'}）`,
-    `车船税：${money(c.vessel)}（随交强险代收${f.vehicleType === 'nev' ? '，纯电动免征' : ''}）`,
+    `车船税：${money(c.vessel)}（随交强险代收${f.vehicleType === 'nev' ? '，纯电动免征' : f.vehicleType === 'phev' ? '，插混按排量计征' : ''}）`,
     `交强险：${money(c.compulsory)}`,
     `商业险：${money(c.commercial)}`,
     '',
@@ -384,13 +440,15 @@ export function buildDetailText(f: BuyForm, c: Calc): string {
       '',
     );
   }
+  const tradeInRule = POLICY_2026.tradeIn[policyVehicle(f.vehicleType)];
+  const scrapRule = POLICY_2026.scrap[policyVehicle(f.vehicleType)];
   const tradeInNote =
     f.tradeInMode === 'policy'
-      ? `（按 2026 年政策计算，开票价 × ${Math.round(POLICY_2026.tradeIn[f.vehicleType].rate * 100)}%，封顶 ${(POLICY_2026.tradeIn[f.vehicleType].cap / 10000).toFixed(1).replace('.0', '')} 万元）`
+      ? `（按 2026 年政策计算，开票价 × ${Math.round(tradeInRule.rate * 100)}%，封顶 ${(tradeInRule.cap / 10000).toFixed(1).replace('.0', '')} 万元）`
       : '';
   const scrapNote =
     f.scrapMode === 'policy'
-      ? `（按 2026 年政策计算，开票价 × ${Math.round(POLICY_2026.scrap[f.vehicleType].rate * 100)}%，封顶 ${(POLICY_2026.scrap[f.vehicleType].cap / 10000).toFixed(1).replace('.0', '')} 万元）`
+      ? `（按 2026 年政策计算，开票价 × ${Math.round(scrapRule.rate * 100)}%，封顶 ${(scrapRule.cap / 10000).toFixed(1).replace('.0', '')} 万元）`
       : '';
   lines.push(
     '【补贴抵扣（不计税）】',
@@ -408,7 +466,7 @@ export function buildDetailText(f: BuyForm, c: Calc): string {
       `口径：首付 + 月供 × ${paidMonths} 期 + 结清 + 购置税 + 保险 + 杂费 − 补贴（金融返点已冲减车价，全款口径 ${money(c.fullTotal)}）`,
     );
   } else {
-    lines.push('口径：计税基数 + 购置税 + 保险 + 杂费 − 补贴');
+    lines.push('口径：成交价 + 购置税 + 保险 + 杂费 − 补贴');
   }
   lines.push(
     '',
