@@ -25,6 +25,8 @@ export interface OwnForm {
   phevEvPrice: string;
   // 保险续保与车船税
   insuranceBase: string;
+  // 可退保基数（通常只退商业险，交强险随车过户）
+  refundBase: string;
   insuranceTrack: InsuranceTrack;
   claimCase: ClaimCase;
   vesselTax: string;
@@ -162,6 +164,19 @@ const RESIDUAL_CURVES: Record<EnergyType, number[]> = {
 export function autoResidualPct(energyType: EnergyType, years: number): number {
   const curve = RESIDUAL_CURVES[energyType];
   return round2(curve[clamp(Math.round(years), 1, 10) - 1] * 100);
+}
+
+// 按车龄插值的残值率：曲线按整年建表，年中取相邻两档线性插值，
+// 避免「第 3 年 5 月按 2 年档、第 3 年 6 月跳到 3 年档」造成的月内跳变
+export function autoResidualPctAt(energyType: EnergyType, years: number): number {
+  const y = clamp(years, 1, 10);
+  const curve = RESIDUAL_CURVES[energyType];
+  const lo = Math.floor(y);
+  const hi = Math.ceil(y);
+  if (lo === hi) return autoResidualPct(energyType, lo);
+  const a = curve[lo - 1];
+  const b = curve[hi - 1];
+  return round2((a + (b - a) * (y - lo)) * 100);
 }
 
 // 无赔款优待（NCD）：连续无出险时第 2 年约 85 折、第 3 年约 7 折、第 4 年起约 5 折；
@@ -354,21 +369,23 @@ export function computeOwn(f: OwnForm): OwnCalc {
 }
 
 // 累计用车成本（支持卖出月份粒度）：yearFrac = 持有年数，可为小数（2.5 = 第 3 年年中卖出）。
-// 口径：保险与车船税按保单年整年计（卖出年保费已缴，退保回收由卖车模块按 lastPremium 另算），
+// 口径：卖出年保险按整年计（退保回收由卖车模块按 refundPremium 另算），车船税按月折算；
 // 能源/杂项/其他维修按月折算，保养与易损件按累计里程节点计次；整年时与 computeOwn(holdYears) 完全一致
-export function ownCostCumulative(f: OwnForm, yearFrac: number): { total: number; lastPremium: number } {
+export function ownCostCumulative(f: OwnForm, yearFrac: number): { total: number; lastPremium: number; refundPremium: number } {
   const yf = clamp(yearFrac, 0, 10);
-  if (yf <= 0) return { total: 0, lastPremium: 0 };
+  if (yf <= 0) return { total: 0, lastPremium: 0, refundPremium: 0 };
   const fullYears = Math.floor(yf + 1e-9);
   const frac = yf - fullYears;
   const insuranceBase = Math.max(0, num(f.insuranceBase));
+  const refundBase = Math.max(0, num(f.refundBase) || 0);
   // 卖出时在保的保单年：整年卖出即第 fullYears 年保单，年中卖出即下一年保单；首年保费已计入购车落地价
   const activeYear = fullYears + (frac > 0 ? 1 : 0);
-  const lastPremium = round2(
-    insuranceBase * (activeYear <= 1 ? 1 : ncdFactor(activeYear, f.insuranceTrack, f.claimCase)),
-  );
+  const factor = activeYear <= 1 ? 1 : ncdFactor(activeYear, f.insuranceTrack, f.claimCase);
+  const lastPremium = round2(insuranceBase * factor);
+  // 退保回收基数：通常只有商业险可退（交强险随车过户），按同一 NCD 系数折算
+  const refundPremium = round2(refundBase * factor);
   const full = fullYears > 0 ? computeOwn({ ...f, holdYears: String(fullYears) }).total : 0;
-  if (frac <= 0) return { total: round2(full), lastPremium };
+  if (frac <= 0) return { total: round2(full), lastPremium, refundPremium };
 
   const annualKm = Math.max(0, num(f.annualMileage));
   const year = fullYears + 1;
@@ -389,12 +406,12 @@ export function ownCostCumulative(f: OwnForm, yearFrac: number): { total: number
   const partial =
     row.energy * frac + // 能源按月折算
     row.insurance + // 卖出年保费已整年缴纳，退保回收单列
-    row.vessel +
+    row.vessel * frac + // 车船税按剩余月份折算（过户/报废可按未用月份退）
     round2(maint) +
     round2(wear) +
     row.misc * frac + // 停车/洗车/路桥按月折算
     Math.max(0, num(f.otherRepairYear)) * frac; // 其他维修预留按月折算
-  return { total: round2(full + partial), lastPremium };
+  return { total: round2(full + partial), lastPremium, refundPremium };
 }
 
 export interface CompareItem {
@@ -428,6 +445,7 @@ export const DEFAULT_OWN_FORM: OwnForm = {
   phevEvPer100: '18',
   phevEvPrice: '0.6',
   insuranceBase: '4450',
+  refundBase: '3500',
   insuranceTrack: 'ncd',
   claimCase: 'clean',
   vesselTax: '420',
@@ -457,13 +475,15 @@ export const DEFAULT_OWN_FORM: OwnForm = {
 
 // 首次进入且无本地存档时，默认值跟随购车测算的车辆类型、保费与车船税
 export function loadOwnForm(buy: BuyForm): OwnForm {
+  const energy: EnergyType = buy.vehicleType === 'fuel' ? 'gas' : buy.vehicleType === 'phev' ? 'phev' : 'bev';
   const d: OwnForm = {
     ...DEFAULT_OWN_FORM,
-    energyType: buy.vehicleType === 'fuel' ? 'gas' : 'bev',
-    ...ENERGY_PRESETS[buy.vehicleType === 'fuel' ? 'gas' : 'bev'],
+    energyType: energy,
+    ...ENERGY_PRESETS[energy],
     insuranceBase: String(
       Math.round((num(buy.compulsoryInsurance) + num(buy.commercialInsurance)) * 100) / 100,
     ),
+    refundBase: String(Math.round(num(buy.commercialInsurance) * 100) / 100),
     vesselTax: buy.vehicleVesselTax,
   };
   try {
@@ -488,6 +508,7 @@ export function loadOwnForm(buy: BuyForm): OwnForm {
       phevEvPer100: s('phevEvPer100') ?? d.phevEvPer100,
       phevEvPrice: s('phevEvPrice') ?? d.phevEvPrice,
       insuranceBase: s('insuranceBase') ?? d.insuranceBase,
+      refundBase: s('refundBase') ?? d.refundBase,
       insuranceTrack: p.insuranceTrack === 'flat' ? 'flat' : 'ncd',
       claimCase: p.claimCase === 'once' ? 'once' : 'clean',
       vesselTax: s('vesselTax') ?? d.vesselTax,
@@ -530,7 +551,8 @@ export function loadOwnForm(buy: BuyForm): OwnForm {
 export interface OwnTextCtx {
   vehicleName: string;
   buyTotal: number;
-  buyTaxBase: number;
+  loanSettle: number;
+  loanFee: number;
   residual: {
     ratePct: number;
     residual: number;
@@ -587,7 +609,9 @@ export function buildOwnDetailText(f: OwnForm, c: OwnCalc, ctx: OwnTextCtx): str
       '【折旧参考（机会成本，非现金支出）】',
       `残值率 ${pct(ctx.residual.ratePct)} → 预估残值 ${money(ctx.residual.residual)}`,
       `折旧合计 ${money(ctx.residual.depreciation)}（年均 ${money(ctx.residual.yearlyDepreciation)}）`,
-      `全周期净支出 = 购车落地 ${money(ctx.buyTotal)} + 用车 ${money(c.total)} - 残值 ${money(ctx.residual.residual)} = ${money(ctx.residual.fullNet)}`,
+      `全周期净支出 = 购车落地 ${money(ctx.buyTotal)} + 用车 ${money(c.total)} - 残值 ${money(ctx.residual.residual)}${
+        ctx.loanSettle > 0 ? ` + 贷款结清 ${money(ctx.loanSettle)}` : ''
+      }${ctx.loanFee > 0 ? ` + 结清手续费 ${money(ctx.loanFee)}` : ''} = ${money(ctx.residual.fullNet)}`,
     );
   }
   lines.push(
