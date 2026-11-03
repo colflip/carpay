@@ -44,7 +44,9 @@ import {
   fmtCNY,
   FormSection,
   LabelInput,
+  localDateStamp,
   num,
+  round2,
   sanitizeMoney,
   Segmented,
   SummaryGroup,
@@ -53,6 +55,7 @@ import {
   ToggleGroup,
 } from './shared';
 import { renderPosterPng } from './sharePoster';
+import { loanAtSale } from './sellModel';
 
 const HOLD_YEAR_OPTIONS = [1, 3, 5, 8];
 const ENERGY_CLS: Record<EnergyType, string> = {
@@ -125,16 +128,21 @@ export default function OwnCostPanel({
   const cmp = compareOwn(form);
 
   const residualRatePct =
-    form.residualRatePct !== null ? num(form.residualRatePct) : autoResidualPct(form.energyType, calc.years);
-  const residual = Math.max(0, (buyCalc.taxBase * residualRatePct) / 100);
-  const depreciation = Math.max(0, buyCalc.taxBase - residual);
-  const fullNet = buyCalc.total + calc.total - residual;
+    form.residualRatePct !== null && form.residualRatePct.trim() !== ''
+      ? clamp(num(form.residualRatePct), 0, 100)
+      : autoResidualPct(form.energyType, calc.years);
+  const residual = Math.max(0, (buyCalc.dealPrice * residualRatePct) / 100);
+  const depreciation = Math.max(0, buyCalc.dealPrice - residual);
+  // 贷款按持有年末截断：卖出时需先结清剩余本金，不能把全期利息和未还本金混在一起
+  const loan = loanAtSale(buyForm, buyCalc, calc.years * 12);
+  const fullNet = loan.buyTotal + calc.total - residual + loan.settleAtSale + loan.settleFee;
 
   const ownDetailText = () =>
     buildOwnDetailText(form, calc, {
       vehicleName: buyForm.modelName.trim() || '未命名车辆',
-      buyTotal: buyCalc.total,
-      buyTaxBase: buyCalc.taxBase,
+      buyTotal: loan.buyTotal,
+      loanSettle: loan.settleAtSale,
+      loanFee: loan.settleFee,
       residual: form.showDepreciation
         ? {
             ratePct: residualRatePct,
@@ -164,7 +172,7 @@ export default function OwnCostPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `CarPay-${exportBaseName()}-${localDateStamp()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -184,7 +192,7 @@ export default function OwnCostPanel({
       await copyFallback();
       return;
     }
-    const fileName = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.png`;
+    const fileName = `CarPay-${exportBaseName()}-${localDateStamp()}.png`;
     setShareBusy(true);
     try {
       const probe = new File([new Uint8Array([137])], 'probe.png', { type: 'image/png' });
@@ -214,7 +222,7 @@ export default function OwnCostPanel({
       if (!dataUrl) return;
       const a = document.createElement('a');
       a.href = dataUrl;
-      a.download = `CarPay-${exportBaseName()}-${new Date().toISOString().slice(0, 10)}.png`;
+      a.download = `CarPay-${exportBaseName()}-${localDateStamp()}.png`;
       a.click();
     } catch {
       /* 截图失败时静默退出，可改用导出 txt */
@@ -233,7 +241,7 @@ export default function OwnCostPanel({
   ];
 
   const residualBadge =
-    form.residualRatePct === null ? (
+    form.residualRatePct === null || form.residualRatePct.trim() === '' ? (
       <span className="rounded-full border border-zinc-200 px-1.5 py-px text-[13px] leading-4 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
         自动
       </span>
@@ -301,20 +309,33 @@ export default function OwnCostPanel({
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm text-zinc-700 dark:text-zinc-300">能源类型</span>
-                  <Tip text="默认跟随购车测算的车辆类型。切换时会重置能耗、保养与车船税为该类型的常见默认值（可再手动修改）。" />
+                  <Tip text="首次进入默认跟随购车测算的车辆类型；之后切换购车车型，可点「带入购车」同步。切换能源类型会重置能耗、保养与车船税为该类型的常见默认值（可再手动修改）。" />
                 </div>
-                <Segmented
-                  className="ml-auto"
-                  groupId="own-energy"
-                  ariaLabel="能源类型"
-                  value={form.energyType}
-                  onChange={setEnergyType}
-                  options={[
-                    { value: 'gas', label: '汽油', icon: Fuel },
-                    { value: 'phev', label: '插混', icon: PlugZap },
-                    { value: 'bev', label: '纯电', icon: Zap },
-                  ]}
-                />
+                <div className="ml-auto flex items-center gap-1">
+                  <SyncFromBuyButton
+                    label="带入购车"
+                    onClick={() =>
+                      setEnergyType(
+                        buyForm.vehicleType === 'fuel'
+                          ? 'gas'
+                          : buyForm.vehicleType === 'phev'
+                            ? 'phev'
+                            : 'bev',
+                      )
+                    }
+                  />
+                  <Segmented
+                    groupId="own-energy"
+                    ariaLabel="能源类型"
+                    value={form.energyType}
+                    onChange={setEnergyType}
+                    options={[
+                      { value: 'gas', label: '汽油', icon: Fuel },
+                      { value: 'phev', label: '插混', icon: PlugZap },
+                      { value: 'bev', label: '纯电', icon: Zap },
+                    ]}
+                  />
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                 <div className="flex items-center gap-1.5">
@@ -484,6 +505,21 @@ export default function OwnCostPanel({
                     />
                   }
                   onChange={(v) => setMoney('insuranceBase', v)}
+                />
+              </div>
+              <div className="py-1.5">
+                <LabelInput
+                  id="own-refund-base"
+                  label="可退保基数（商业险）"
+                  tip="卖车时通常只退商业险，交强险随车过户不退。默认带入购车页商业险，按实际保单修改；退保金额还会乘以对应保单年的 NCD 系数与剩余月份。"
+                  value={form.refundBase}
+                  controls={
+                    <SyncFromBuyButton
+                      label="带入商业险"
+                      onClick={() => patch({ refundBase: String(buyCalc.commercial) })}
+                    />
+                  }
+                  onChange={(v) => setMoney('refundBase', v)}
                 />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-4 py-1.5">
@@ -763,6 +799,14 @@ export default function OwnCostPanel({
                     badge={residualBadge}
                     value={form.residualRatePct ?? String(autoResidualPct(form.energyType, calc.years))}
                     onChange={(v) => patch({ residualRatePct: sanitizeMoney(v) })}
+                    onBlur={() =>
+                      patch({
+                        residualRatePct:
+                          form.residualRatePct !== null && form.residualRatePct.trim() !== ''
+                            ? String(clamp(num(form.residualRatePct), 0, 100))
+                            : null,
+                      })
+                    }
                     after={
                       form.residualRatePct !== null ? (
                         <button
@@ -874,8 +918,8 @@ export default function OwnCostPanel({
               {form.showDepreciation && (
                 <SummaryGroup icon={TrendingDown} title="折旧参考（非现金支出）">
                   <SummaryRow
-                    label={`预估残值（残值率 ${fmtCNY(residualRatePct).replace('¥', '')}%）`}
-                    tip={`按购车成交价 ${fmtCNY(buyCalc.taxBase)} × 残值率估算，参考流通协会保值率曲线，可在上方折旧参考区手动修改。`}
+                    label={`预估残值（残值率 ${round2(residualRatePct)}%）`}
+                    tip={`按购车成交价 ${fmtCNY(buyCalc.dealPrice)} × 残值率估算，参考流通协会保值率曲线，可在上方折旧参考区手动修改。`}
                     value={fmtCNY(residual)}
                     tone="minus"
                   />
@@ -887,7 +931,9 @@ export default function OwnCostPanel({
                   />
                   <SummaryRow
                     label="全周期净支出"
-                    tip={`购车落地 ${fmtCNY(buyCalc.total)} + 用车 ${fmtCNY(calc.total)} - 预估残值 ${fmtCNY(residual)}；持有 ${calc.years} 年后卖车情形下的净支出。`}
+                    tip={`购车落地（按持有年末截断）${fmtCNY(loan.buyTotal)} + 用车 ${fmtCNY(calc.total)} - 预估残值 ${fmtCNY(residual)}${
+                      loan.settleAtSale > 0 ? ` + 贷款结清 ${fmtCNY(loan.settleAtSale)}` : ''
+                    }${loan.settleFee > 0 ? ` + 结清手续费 ${fmtCNY(loan.settleFee)}` : ''}；持有 ${calc.years} 年后卖车、未含卖车费用的净支出。`}
                     value={fmtCNY(fullNet)}
                     tone="strong"
                   />
