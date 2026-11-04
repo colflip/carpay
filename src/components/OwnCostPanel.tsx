@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRightLeft,
   CalendarDays,
@@ -357,15 +356,10 @@ export default function OwnCostPanel({
             </FormSection>
 
             <FormSection icon={Fuel} title="能源费用">
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={form.energyType}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="divide-y divide-zinc-100 dark:divide-zinc-800/70"
-                >
+              <div
+                key={form.energyType}
+                className="panel-enter divide-y divide-zinc-100 dark:divide-zinc-800/70"
+              >
                   {form.energyType === 'gas' && (
                     <>
                       <div className="py-1.5">
@@ -486,8 +480,7 @@ export default function OwnCostPanel({
                       </div>
                     </>
                   )}
-                </motion.div>
-              </AnimatePresence>
+              </div>
             </FormSection>
 
             <FormSection icon={ShieldCheck} title="保险续保与车船税">

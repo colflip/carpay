@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowRightLeft,
   Banknote,
@@ -296,16 +295,8 @@ export default function SellPanel({
                   ]}
                 />
               </div>
-              <AnimatePresence mode="wait" initial={false}>
-                {form.residualMode === 'auto' ? (
-                  <motion.div
-                    key="auto"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                    className="divide-y divide-zinc-100 dark:divide-zinc-800/70"
-                  >
+              {form.residualMode === 'auto' ? (
+                <div key="auto" className="panel-enter divide-y divide-zinc-100 dark:divide-zinc-800/70">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm text-zinc-700 dark:text-zinc-300">残值基数</span>
@@ -373,16 +364,9 @@ export default function SellPanel({
                         ]}
                       />
                     </div>
-                  </motion.div>
+                  </div>
                 ) : (
-                  <motion.div
-                    key="manual"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                    className="divide-y divide-zinc-100 dark:divide-zinc-800/70"
-                  >
+                  <div key="manual" className="panel-enter divide-y divide-zinc-100 dark:divide-zinc-800/70">
                     <div className="py-1.5">
                       <LabelInput
                         id="sell-manual-price"
@@ -393,9 +377,8 @@ export default function SellPanel({
                         onChange={(v) => setMoney('manualSalePrice', v)}
                       />
                     </div>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
             </FormSection>
 
             <FormSection icon={ReceiptText} title="卖出时费用">
