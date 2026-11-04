@@ -452,7 +452,7 @@ export function ChipGroup<T extends string>({
   ariaLabel: string;
 }) {
   return (
-    <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-1.5">
+    <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-2">
       {options.map((o) => {
         const active = values.includes(o.value);
         return (
@@ -462,9 +462,9 @@ export function ChipGroup<T extends string>({
             aria-pressed={active}
             disabled={o.disabled}
             onClick={() => onToggle(o.value)}
-            className={`flex h-7 items-center rounded-lg border px-2 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:text-sm ${
+            className={`flex h-8 items-center rounded-full border px-3.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               active
-                ? 'border-emerald-500/60 bg-emerald-500/10 font-medium text-emerald-700 dark:border-emerald-400/50 dark:bg-emerald-400/10 dark:text-emerald-300'
+                ? 'border-emerald-400 bg-emerald-50 font-medium text-emerald-600 dark:border-emerald-400/50 dark:bg-emerald-400/10 dark:text-emerald-300'
                 : 'border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400 dark:hover:text-zinc-200'
             }`}
           >

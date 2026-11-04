@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   BadgePercent,
   Banknote,
@@ -481,15 +481,9 @@ export default function CarPayCalculator() {
         </header>
 
         <main className="mt-3 lg:mt-4">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={tab}
-              role="tabpanel"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-            >
+          {/* 直接按 tab 挂载：入场动画交给 CSS，避免退出动画未结束时新面板不渲染 */}
+          <div key={tab} role="tabpanel" className="panel-enter">
+
               {tab === 'buy' ? (
                 <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-5 lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_420px]">
                   <form className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -589,31 +583,19 @@ export default function CarPayCalculator() {
                             onChange={(v) => setMoney('loanRebate', v)}
                           />
                         </div>
-                        <div className="flex items-center justify-between rounded-xl bg-zinc-100/80 px-3 py-2 dark:bg-zinc-800/50">
-                          <span className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400">
-                            成交价（实际车价）
-                            <Tip text="裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是首付、月供与卖车残值的计算基数。" />
-                          </span>
-                          <span className="text-[15px] font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                            {fmtCNY(calc.dealPrice)}
-                          </span>
-                        </div>
-                        <div className="py-2">
-                          <div className="flex items-center justify-between gap-3">
+                        <div className="border-t border-zinc-200 pt-1.5 dark:border-zinc-800">
+                          <div className="flex items-center justify-between rounded-xl bg-zinc-100/80 px-3 py-2 dark:bg-zinc-800/50">
                             <span className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400">
-                              计税基数（开票价）
-                              <Tip text="开票价只用于购置税与以旧换新补贴；可手动选择哪些项目进入发票——发票外优惠/返点不计入时开票价会高于成交价，选装不计入时则更低。低于税务系统最低计税价时按最低计税价核定，低开发票存在补税风险。" />
+                              裸车价（成交价、实际车价）
+                              <Tip text="裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是首付、月供与卖车残值的计算基数。" />
                             </span>
                             <span className="text-[15px] font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
-                              {fmtCNY(calc.taxBase)}
-                              {calc.taxBase !== calc.dealPrice && (
-                                <span className="ml-1.5 text-[12px] font-normal text-amber-600 dark:text-amber-400">
-                                  已按计税口径调整
-                                </span>
-                              )}
+                              {fmtCNY(calc.dealPrice)}
                             </span>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        </div>
+                        <div className="py-2">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                             <span className="text-[13px] text-zinc-500 dark:text-zinc-400">计税口径</span>
                             <ChipGroup
                               ariaLabel="计税基数口径"
@@ -626,6 +608,20 @@ export default function CarPayCalculator() {
                                 { value: 'taxRebate', label: '金融返点抵扣', disabled: !calc.isLoan },
                               ]}
                             />
+                          </div>
+                          <div className="mt-2.5 flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400">
+                              计税基数（开票价）
+                              <Tip text="开票价只用于购置税与以旧换新补贴；可手动选择哪些项目进入发票——发票外优惠/返点不计入时开票价会高于成交价，选装不计入时则更低。低于税务系统最低计税价时按最低计税价核定，低开发票存在补税风险。" />
+                            </span>
+                            <span className="text-[15px] font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+                              {fmtCNY(calc.taxBase)}
+                              {calc.taxBase !== calc.dealPrice && (
+                                <span className="ml-1.5 text-[12px] font-normal text-amber-600 dark:text-amber-400">
+                                  已按计税口径调整
+                                </span>
+                              )}
+                            </span>
                           </div>
                         </div>
                       </FormSection>
@@ -884,16 +880,8 @@ export default function CarPayCalculator() {
                           />
                         </div>
 
-                        <AnimatePresence mode="wait" initial={false}>
-                          {calc.isLoan && (
-                            <motion.div
-                              key="loan-fields"
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -6 }}
-                              transition={{ duration: 0.18, ease: 'easeOut' }}
-                              className="divide-y divide-zinc-100 dark:divide-zinc-800/70"
-                            >
+                        {calc.isLoan && (
+                          <div className="panel-enter divide-y divide-zinc-100 dark:divide-zinc-800/70">
                               {form.paymentMode === 'finance' && (
                                 <div className="py-1.5">
                                   <LabelInput
@@ -1075,9 +1063,8 @@ export default function CarPayCalculator() {
                                   />
                                 </div>
                               )}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                            </div>
+                        )}
                       </FormSection>
                     </div>
                   </form>
@@ -1389,8 +1376,7 @@ export default function CarPayCalculator() {
                   summaryRef={sellSummaryRef}
                 />
               )}
-            </motion.div>
-          </AnimatePresence>
+          </div>
         </main>
 
         <section className="mt-6 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900">
