@@ -1,4 +1,4 @@
-import { clamp, fmtCNY, num, round2 } from './shared';
+import { clamp, fmtCNY, num, round2 } from '../components/shared';
 import type { BuyForm } from './buyModel';
 
 export const OWN_FORM_KEY = 'carpay:own-form:v1';

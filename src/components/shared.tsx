@@ -4,6 +4,11 @@ import { motion, useSpring, useTransform } from 'framer-motion';
 import { Info } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+// 站点与仓库地址：页头 GitHub 图标、导出海报的二维码与仓库水印共用
+export const SITE_URL = 'https://colflip.github.io/carpay/';
+export const SITE_LINK = 'https://colflip.github.io/carpay';
+export const GITHUB_URL = 'https://github.com/colflip/carpay';
+
 export const num = (s: string): number => {
   const n = Number.parseFloat(s);
   return Number.isFinite(n) ? n : 0;

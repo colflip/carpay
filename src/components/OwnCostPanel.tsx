@@ -20,7 +20,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
-import type { BuyForm, Calc } from './buyModel';
+import type { BuyForm, BuyCalc } from '../models/buyModel';
 import {
   autoResidualPct,
   buildOwnDetailText,
@@ -32,7 +32,7 @@ import {
   type EnergyType,
   type OwnCalc,
   type OwnForm,
-} from './ownCostModel';
+} from '../models/ownCostModel';
 import {
   AnimatedAmount,
   clamp,
@@ -54,7 +54,7 @@ import {
   ToggleGroup,
 } from './shared';
 import { renderPosterPng } from './sharePoster';
-import { loanAtSale } from './sellModel';
+import { loanAtSale } from '../models/sellModel';
 
 const HOLD_YEAR_OPTIONS = [1, 3, 5, 8];
 const ENERGY_CLS: Record<EnergyType, string> = {
@@ -91,7 +91,7 @@ export default function OwnCostPanel({
   patch: (p: Partial<OwnForm>) => void;
   reset: () => void;
   buyForm: BuyForm;
-  buyCalc: Calc;
+  buyCalc: BuyCalc;
   dark: boolean;
   summaryRef: RefObject<HTMLDivElement>;
 }) {

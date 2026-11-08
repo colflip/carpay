@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { computeBuy, DEFAULT_FORM, type BuyForm } from './buyModel';
+import { computeBuy, DEFAULT_BUY_FORM, type BuyForm } from './buyModel';
 import { autoResidualPctAt, computeOwn, DEFAULT_OWN_FORM, ownCostCumulative, type OwnForm } from './ownCostModel';
 import { computeSell, DEFAULT_SELL_FORM, salePeriodText, type SellForm } from './sellModel';
 
-const buy = (p: Partial<BuyForm>): BuyForm => ({ ...DEFAULT_FORM, ...p });
+const buy = (p: Partial<BuyForm>): BuyForm => ({ ...DEFAULT_BUY_FORM, ...p });
 const own = (p: Partial<OwnForm>): OwnForm => ({ ...DEFAULT_OWN_FORM, ...p });
 const sell = (p: Partial<SellForm>): SellForm => ({ ...DEFAULT_SELL_FORM, ...p });
 
 describe('购车测算', () => {
   it('全款默认口径', () => {
-    const c = computeBuy(DEFAULT_FORM);
+    const c = computeBuy(DEFAULT_BUY_FORM);
     expect(c.dealPrice).toBe(135000);
     expect(c.taxBase).toBe(135000);
     expect(c.purchaseTax).toBe(11946.9);
@@ -86,7 +86,7 @@ describe('用车成本', () => {
 
 describe('卖车损益', () => {
   it('默认 3 年末卖出口径', () => {
-    const c = computeSell(DEFAULT_SELL_FORM, DEFAULT_FORM, computeBuy(DEFAULT_FORM), DEFAULT_OWN_FORM);
+    const c = computeSell(DEFAULT_SELL_FORM, DEFAULT_BUY_FORM, computeBuy(DEFAULT_BUY_FORM), DEFAULT_OWN_FORM);
     expect(c.salePrice).toBe(78300);
     expect(c.netProceeds).toBe(77900);
     expect(c.fullNet).toBe(138299.4);
@@ -96,9 +96,9 @@ describe('卖车损益', () => {
   });
 
   it('残值率按车龄插值，月中不再跳档', () => {
-    const fuel = computeBuy(DEFAULT_FORM);
-    const may = computeSell(sell({ sellYear: '3', sellMonth: '5' }), DEFAULT_FORM, fuel, DEFAULT_OWN_FORM);
-    const june = computeSell(sell({ sellYear: '3', sellMonth: '6' }), DEFAULT_FORM, fuel, DEFAULT_OWN_FORM);
+    const fuel = computeBuy(DEFAULT_BUY_FORM);
+    const may = computeSell(sell({ sellYear: '3', sellMonth: '5' }), DEFAULT_BUY_FORM, fuel, DEFAULT_OWN_FORM);
+    const june = computeSell(sell({ sellYear: '3', sellMonth: '6' }), DEFAULT_BUY_FORM, fuel, DEFAULT_OWN_FORM);
     expect(may.residualRatePct).toBe(64.96);
     expect(june.residualRatePct).toBe(64);
     expect(may.salePrice - june.salePrice).toBeLessThan(2000);
@@ -110,8 +110,8 @@ describe('卖车损益', () => {
   it('残值率空字符串回落到自动曲线', () => {
     const c = computeSell(
       sell({ residualRatePct: '' }),
-      DEFAULT_FORM,
-      computeBuy(DEFAULT_FORM),
+      DEFAULT_BUY_FORM,
+      computeBuy(DEFAULT_BUY_FORM),
       DEFAULT_OWN_FORM,
     );
     expect(c.residualRatePct).toBe(58);
@@ -135,8 +135,8 @@ describe('卖车损益', () => {
   it('退保只计商业险，可退保基数可调整', () => {
     const c = computeSell(
       sell({ sellYear: '3', sellMonth: '6' }),
-      DEFAULT_FORM,
-      computeBuy(DEFAULT_FORM),
+      DEFAULT_BUY_FORM,
+      computeBuy(DEFAULT_BUY_FORM),
       DEFAULT_OWN_FORM,
     );
     expect(c.refund).toBe(1163.75);
@@ -145,8 +145,8 @@ describe('卖车损益', () => {
   it('手动卖价高于成交价时锚定年行与当前卖价一致', () => {
     const c = computeSell(
       sell({ residualMode: 'manual', manualSalePrice: '150000' }),
-      DEFAULT_FORM,
-      computeBuy(DEFAULT_FORM),
+      DEFAULT_BUY_FORM,
+      computeBuy(DEFAULT_BUY_FORM),
       DEFAULT_OWN_FORM,
     );
     expect(c.salePrice).toBe(150000);

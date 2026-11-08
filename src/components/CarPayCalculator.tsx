@@ -26,11 +26,11 @@ import {
 import OwnCostPanel from './OwnCostPanel';
 import SellPanel from './SellPanel';
 import {
-  buildDetailText,
+  buildBuyDetailText,
   computeBuy,
-  DEFAULT_FORM,
+  DEFAULT_BUY_FORM,
   EARLY_MONTH_OPTIONS,
-  FORM_KEY,
+  BUY_FORM_KEY,
   FREE_MONTH_OPTIONS,
   loadBuyForm,
   MONTH_OPTIONS,
@@ -43,7 +43,7 @@ import {
   defaultTaxRateMode,
   defaultVesselTax,
   VEHICLE_LABEL,
-} from './buyModel';
+} from '../models/buyModel';
 import {
   computeOwn,
   DEFAULT_OWN_FORM,
@@ -51,7 +51,7 @@ import {
   OWN_FORM_KEY,
   OWN_SOURCES,
   type OwnForm,
-} from './ownCostModel';
+} from '../models/ownCostModel';
 import {
   computeSell,
   DEFAULT_SELL_FORM,
@@ -59,7 +59,7 @@ import {
   SELL_FORM_KEY,
   SELL_SOURCES,
   type SellForm,
-} from './sellModel';
+} from '../models/sellModel';
 import { renderPosterPng } from './sharePoster';
 import {
   AnimatedAmount,
@@ -71,6 +71,7 @@ import {
   deductCNY,
   fmtCNY,
   FormSection,
+  GITHUB_URL,
   LabelInput,
   localDateStamp,
   num,
@@ -83,8 +84,6 @@ import {
   toCNUpper,
 } from './shared';
 
-// 部署前替换为实际仓库地址
-const GITHUB_URL = 'https://github.com/colflip/carpay';
 const THEME_KEY = 'carpay:theme';
 
 type TabKey = 'buy' | 'own' | 'sell';
@@ -180,15 +179,15 @@ export default function CarPayCalculator() {
     try {
       localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
     } catch {
-      /* 隐私模式等场景下写入失败可忽略 */
+      /* 写入失败可忽略（隐私模式等） */
     }
   }, [dark]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(FORM_KEY, JSON.stringify(form));
+      localStorage.setItem(BUY_FORM_KEY, JSON.stringify(form));
     } catch {
-      /* 同上 */
+      /* 写入失败可忽略（隐私模式等） */
     }
   }, [form]);
 
@@ -196,7 +195,7 @@ export default function CarPayCalculator() {
     try {
       localStorage.setItem(OWN_FORM_KEY, JSON.stringify(ownForm));
     } catch {
-      /* 同上 */
+      /* 写入失败可忽略（隐私模式等） */
     }
   }, [ownForm]);
 
@@ -204,7 +203,7 @@ export default function CarPayCalculator() {
     try {
       localStorage.setItem(SELL_FORM_KEY, JSON.stringify(sellForm));
     } catch {
-      /* 同上 */
+      /* 写入失败可忽略（隐私模式等） */
     }
   }, [sellForm]);
 
@@ -297,7 +296,7 @@ export default function CarPayCalculator() {
   );
 
   const handleCopy = async () => {
-    const ok = await copyText(buildDetailText(form, calc));
+    const ok = await copyText(buildBuyDetailText(form, calc));
     if (ok) {
       setCopied(true);
       window.clearTimeout(copyTimer.current);
@@ -310,7 +309,7 @@ export default function CarPayCalculator() {
 
   const handleShare = async () => {
     if (shareBusy) return;
-    const text = buildDetailText(form, calc);
+    const text = buildBuyDetailText(form, calc);
     const copyFallback = async () => {
       const ok = await copyText(text);
       if (ok) {
@@ -349,7 +348,7 @@ export default function CarPayCalculator() {
     (form.modelName.trim() || '未命名车辆').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 30);
 
   const handleExport = () => {
-    const text = buildDetailText(form, calc);
+    const text = buildBuyDetailText(form, calc);
     const blob = new Blob(['\ufeff' + text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -494,7 +493,7 @@ export default function CarPayCalculator() {
                         action={
                           <button
                             type="button"
-                            onClick={() => setForm(DEFAULT_FORM)}
+                            onClick={() => setForm(DEFAULT_BUY_FORM)}
                             className="flex h-9 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-700 sm:h-7 sm:px-2 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
                           >
                             <RotateCcw size={13} strokeWidth={2} aria-hidden />

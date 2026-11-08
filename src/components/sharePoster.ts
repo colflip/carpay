@@ -1,6 +1,5 @@
 // 分享/导出图片的品牌海报包装：把汇总卡片套进带品牌页眉与页脚（二维码 + 时间 + 站点链接）的海报里再截图
-const SITE_URL = 'https://colflip.github.io/carpay/';
-const SITE_LINK = 'https://colflip.github.io/carpay';
+import { GITHUB_URL, SITE_LINK, SITE_URL } from './shared';
 
 const logoSvg = (size: number, dark: boolean): string =>
   `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="${
@@ -60,7 +59,7 @@ export async function renderPosterPng(
   );
   if (disclaimer) {
     const mark = document.createElement('a');
-    mark.href = 'https://github.com/colflip/carpay';
+    mark.href = GITHUB_URL;
     mark.target = '_blank';
     mark.rel = 'noreferrer';
     mark.setAttribute('aria-label', 'colflip/CarPay GitHub 仓库');

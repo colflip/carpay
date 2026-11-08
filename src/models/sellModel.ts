@@ -1,11 +1,11 @@
-import { clamp, fmtCNY, num, round2 } from './shared';
+import { clamp, fmtCNY, num, round2 } from '../components/shared';
 import {
   computeBuy,
   firstBuyAmount,
   policySubsidy,
   remainingPrincipalAt,
   type BuyForm,
-  type Calc as BuyCalc,
+  type BuyCalc,
 } from './buyModel';
 import {
   autoResidualPct,
@@ -528,6 +528,6 @@ export const SELL_SOURCES: { label: string; url: string }[] = [
   { label: '2026 保值率月度解读', url: 'https://zhuanlan.zhihu.com/p/2048447542606745965' },
   { label: '二手车过户费用明细', url: 'https://kuku.baidu.com/landing/tscp_doc/5e29fa409951dcab08e20c0d42a63fb5' },
   { label: '车险退保规则（2026）', url: 'https://auto.sina.cn/2026-10-03/detail-initwkuv5364108.d.html' },
-  { label: '机动车解押登记指引', url: 'http://www.panyu.gov.cn/gzhd/rxfw//zsk/cg/content/post_9162306.html' },
+  { label: '机动车解押登记指引', url: 'http://www.panyu.gov.cn/gzhd/rxfw/zsk/cg/content/post_9162306.html' },
   { label: '2026 汽车以旧换新细则', url: 'https://www.mofcom.gov.cn/zwgk/zcfb/art/2025/art_2a65998b79af47eaaf2115ef1ce234f9.html' },
 ];

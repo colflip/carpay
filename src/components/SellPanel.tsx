@@ -22,9 +22,9 @@ import {
   Wallet,
   Zap,
 } from 'lucide-react';
-import type { BuyForm } from './buyModel';
-import { autoResidualPctAt, energyLabel, type OwnForm } from './ownCostModel';
-import { buildSellDetailText, salePeriodText, type SellCalc, type SellForm } from './sellModel';
+import type { BuyForm } from '../models/buyModel';
+import { autoResidualPctAt, energyLabel, type OwnForm } from '../models/ownCostModel';
+import { buildSellDetailText, salePeriodText, type SellCalc, type SellForm } from '../models/sellModel';
 import {
   AnimatedAmount,
   clamp,

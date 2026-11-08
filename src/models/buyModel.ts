@@ -1,6 +1,6 @@
-import { clamp, fmtCNY, num, round2 } from './shared';
+import { clamp, fmtCNY, num, round2 } from '../components/shared';
 
-export const FORM_KEY = 'carpay:buy-form:v1';
+export const BUY_FORM_KEY = 'carpay:buy-form:v1';
 
 export type VehicleType = 'fuel' | 'phev' | 'nev';
 export type PolicyVehicleType = 'fuel' | 'nev';
@@ -61,7 +61,7 @@ export interface BuyForm {
   months: number;
 }
 
-export interface Calc {
+export interface BuyCalc {
   dealPrice: number;
   dealPriceFull: number;
   taxBase: number;
@@ -140,7 +140,7 @@ export function firstBuyAmount(vehicleType: VehicleType, taxBase: number): numbe
   return Math.min(round2(taxBase * rule.rate), rule.cap);
 }
 
-export const DEFAULT_FORM: BuyForm = {
+export const DEFAULT_BUY_FORM: BuyForm = {
   modelName: '',
   vehicleType: 'fuel',
   taxRateMode: 'full',
@@ -213,7 +213,7 @@ export function remainingPrincipalAt(
   return round2(Math.max(0, bn * fp - (monthly * (fp - 1)) / r));
 }
 
-export function computeBuy(f: BuyForm): Calc {
+export function computeBuy(f: BuyForm): BuyCalc {
   const isLoan = f.paymentMode !== 'full';
   const msrp = num(f.msrp);
   const options = num(f.optionsFee);
@@ -318,9 +318,9 @@ export function computeBuy(f: BuyForm): Calc {
 }
 
 export function loadBuyForm(): BuyForm {
-  const d = DEFAULT_FORM;
+  const d = DEFAULT_BUY_FORM;
   try {
-    const raw = localStorage.getItem(FORM_KEY);
+    const raw = localStorage.getItem(BUY_FORM_KEY);
     if (!raw) return d;
     const p = JSON.parse(raw) as Record<string, unknown>;
     const s = (k: keyof BuyForm): string | null => (typeof p[k] === 'string' ? (p[k] as string) : null);
@@ -386,7 +386,7 @@ export function loadBuyForm(): BuyForm {
   }
 }
 
-export function buildDetailText(f: BuyForm, c: Calc): string {
+export function buildBuyDetailText(f: BuyForm, c: BuyCalc): string {
   const money = (n: number) => fmtCNY(n);
   // 计税口径：哪些项目进入开票价（用于购置税与补贴），与成交价口径分开说明
   const taxScope = [
