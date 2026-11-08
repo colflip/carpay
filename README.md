@@ -39,19 +39,23 @@ carpay
 ├─ src
 │  ├─ main.tsx / App.tsx
 │  ├─ index.css                  # Tailwind 基础样式
-│  └─ components
-│     ├─ CarPayCalculator.tsx    # 主壳：导航、购车测算 UI 与导出
+│  ├─ components
+│  │  ├─ CarPayCalculator.tsx    # 主壳：导航、购车测算 UI 与导出
+│  │  ├─ OwnCostPanel.tsx        # 用车成本面板 UI
+│  │  ├─ SellPanel.tsx           # 卖车损益面板 UI
+│  │  ├─ shared.tsx              # 共享 UI 原语（LabelInput/Tip/ToggleGroup/ChipGroup 等）、工具函数与站点常量
+│  │  └─ sharePoster.ts          # 导出/分享品牌海报（卡片克隆 + 来源页脚 + 站点二维码）
+│  └─ models
 │     ├─ buyModel.ts             # 购车测算类型、默认值与计算
 │     ├─ ownCostModel.ts         # 用车成本类型、默认值、NCD/保养/易损/残值计算与明细文本
-│     ├─ OwnCostPanel.tsx        # 用车成本面板 UI
 │     ├─ sellModel.ts            # 卖车损益：贷款截断、残值三模式、逐年净支出、渠道与油电对比
-│     ├─ SellPanel.tsx           # 卖车损益面板 UI
-│     ├─ models.test.ts          # 购车/用车/卖车模型回归（Vitest）
-│     ├─ sharePoster.ts          # 导出/分享品牌海报（卡片克隆 + 来源页脚 + 站点二维码）
-│     └─ shared.tsx              # 共享 UI 原语（LabelInput/Tip/ToggleGroup/ChipGroup 等）与工具函数
-├─ .github/workflows/deploy.yml  # push main 自动构建发布 GitHub Pages
+│     └─ models.test.ts          # 购车/用车/卖车模型回归（Vitest）
+├─ docs                          # 各模块调研与落地方案（含落地状态标注）
+├─ .github/workflows/deploy.yml  # push main 自动测试、构建并发布 GitHub Pages
 └─ vite.config.ts                # base './'，支持子路径部署
 ```
+
+文件命名约定：默认导出组件用 PascalCase（如 `CarPayCalculator.tsx`），命名导出的模型与工具模块用 camelCase（如 `buyModel.ts`、`shared.tsx`）。
 
 ## 技术栈
 
@@ -73,6 +77,7 @@ npm install
 npm run dev       # 本地开发
 npm run build     # 类型检查 + 构建
 npm test          # 计算模型回归（Vitest）
+npm run typecheck # 仅类型检查（tsc --noEmit）
 npm run preview   # 本地预览构建产物
 ```
 
