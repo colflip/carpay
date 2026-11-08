@@ -215,7 +215,7 @@ export default function SellPanel({
                 <button
                   type="button"
                   onClick={reset}
-                  className="flex h-9 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-700 sm:h-7 sm:px-2 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                  className="flex h-9 items-center gap-1 rounded-lg px-2 text-[15px] font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-700 sm:h-7 sm:px-2 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
                 >
                   <RotateCcw size={13} strokeWidth={2} aria-hidden />
                   重置
