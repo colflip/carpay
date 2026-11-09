@@ -1,4 +1,10 @@
+# dependencies / build output
 node_modules
 dist
+
+# local
 .DS_Store
 *.local
+
+# research & planning notes (not needed to build or deploy)
+docs

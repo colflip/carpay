@@ -1,86 +1,68 @@
 # CarPay
 
-[![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=white)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Vite](https://img.shields.io/badge/Vite-5-646cff?logo=vite&logoColor=white)](https://vitejs.dev)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06b6d4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![version](https://img.shields.io/badge/version-0.3.0-blue.svg?style=flat-square)](https://github.com/colflip/carpay) [![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](./LICENSE) [![react](https://img.shields.io/badge/react-18-61dafb.svg?style=flat-square)](https://react.dev) [![typescript](https://img.shields.io/badge/typescript-5-3178c6.svg?style=flat-square)](https://www.typescriptlang.org) [![vite](https://img.shields.io/badge/vite-5-646cff.svg?style=flat-square)](https://vitejs.dev)
 
-用车全周期成本计算：购车落地 → 用车持有 → 卖车残值，三段贯通算清一台车的真实总账。纯前端离线运行，数据仅保存在浏览器 localStorage，不上传任何服务器。
+一款**用车全周期成本计算器**，以「购车落地 → 用车持有 → 卖车损益」三段贯通的口径算清一台车的真实总账。纯前端离线运行，数据仅保存在浏览器 `localStorage`，不上传任何服务器；在线使用：<https://colflip.github.io/carpay/>。
 
-在线使用：<https://colflip.github.io/carpay/>
+**购车测算**以*成交价*与*计税基数（开票价）*双口径拆分车价构成（裸车原价 / 选装包 / 官方与门店优惠 / 金融返点），购置税按 **全额 10% / 减半 5% / 免征** 三档自动套用 2026-2027 新能源政策（减半含每辆 1.5 万元减税上限），支持手动改写与一键恢复；置换 / 报废 / 首购 / 保险四类补贴按 2026 以旧换新比例联动开票价计算，直接抵扣落地总价；付款覆盖全款、首付分期与额度贷款，等额本息月供支持*前 N 期免息*与*第 N 期提前结清*。
 
-## 功能
+**用车成本**按持有 1-10 年测算：能源三态（汽油 / 插混按纯电里程占比加权 / 纯电）、保险续保 NCD 逐年递减（0.85 / 0.70 / 0.50，含出险情景与固定原价模式）、车船税、按里程折算的保养与易损件更换、停车洗车路桥杂项与城市档位预设；输出月均 / 年均 / 每公里 / 逐年明细与油电对比，折旧作为*机会成本*仅提供可开关的参考行。
 
-- **购车测算**：车价构成（裸车原价 / 选装包 / 官方优惠 / 门店优惠 / 金融返点）、置换 / 报废 / 首购 / 保险补贴；成交价与计税基数（开票价）分离，可按项目手动选择哪些优惠/返点进入开票价
-- **购置税三档位**：全额 10% / 减半 5%（自动套用每辆 1.5 万减税上限，2026-2027 新能源政策，含插混/增程与纯电，默认减半）/ 免征；自动按 计税基数 ÷ 1.13 × 税率 计算，支持手动覆盖与一键恢复
-- **税费保险杂费**：车船税（按排量档提示，纯电默认 0、插混按排量）、交强险、商业险、上牌费、服务费均可修改；所有金额输入框实时显示中文大写防量级输错
-- **三种付款方式**：全款 / 首付分期 / 额度贷款；等额本息月供；支持前 N 期免息贴息方案（如「5年2年免息」= 期数 60 + 免息 24）与到期一次性结清的提前还款（结清前利息按免息口径累计，另计手续费）
-- **汇总卡片**：车型回显、支出构成条形图、分层明细、落地总价 + 大写金额、较全款多付 / 少付对比、免责声明
-- **用车成本**：持有 1-10 年测算——能源三态（汽油 / 插混按纯电里程占比加权 / 纯电综合电价）、保险续保 NCD 逐年递减（0.85 / 0.70 / 0.50，含「第 3 年出险 1 次」情景与固定原价模式）、车船税、保养按里程折算次数（小保养 + 大保养加价）、易损件周期更换（轮胎 / 刹车片按公里，电瓶 / 雨刮 / 年检按年）、停车洗车路桥月费；城市档位一键套用停车与洗车默认值
-- **用车成本产出**：月均主数字 + 年均 / 每公里 / 持有期合计、构成占比条形图、逐年成本明细表、油 / 插混 / 电同参数对比、可开关的折旧参考行（流通协会保值率曲线，衔接卖车损益口径）、全周期净支出 = 落地总价（贷款按持有年末截断，另计结清余额）+ 用车成本 − 预估残值
-- **卖车损益**：卖出年份 + 月份粒度（能源杂项按月折算、残值率按车龄在年度曲线间插值）——残值双口径（保值率曲线 × 成交价/指导价，或直接填二手车平台手动卖价）、里程修正（偏离年均 2 万 km 按每万 km 1.5 个百分点调整，上限 ±10%）、贷款按卖出月截断（月供计至卖出月、结清余额从卖款内扣、利息止于卖出月）、过户/整备/平台费用、在保商业险按剩余月份退保回收（可退保基数可在用车页调整）
-- **卖车损益产出**：到手价 + 全周期净支出主数字 + 年均持有成本 / 每公里成本、年均成本走势迷你图、逐年净支出表（1-10 年年末口径 + 最优卖出年高亮）、个人直卖 / 4S 置换 / 车商收车三渠道到手价区间、全周期油电对比（落地价按 2026 政策区分税档）、卖车流程清单（违章 ETC / 解押 / 退保 / 开票 / 置换补贴资格）
-- **导出**：复制明细文本 / 导出 txt / 导出与分享品牌海报 PNG（含 CarPay 页眉、来源页脚：生成时间、站点二维码，微信等聊天工具可直接发图）；明暗主题；表单与主题 localStorage 持久化
+**卖车损益**支持卖出年月双粒度：残值三模式（保值率曲线 / 残值率覆盖 / 手动卖价）与里程修正，贷款按卖出月截断、结清余额从卖款内扣，在保商业险按剩余月份退保回收；产出到手价、全周期净支出、逐年净支出表与最优卖出年、三渠道到手价区间、全周期油电对比与卖车流程清单。
 
-## 计算口径
+三段共用一套**防双算口径**：购车落地总价已含首年保险与车船税，用车侧仅计第 2 年起；补贴只在购车页抵扣一次；贷款月供计至卖出月、结清余额在卖车款内扣除；折旧通过卖车款变现，不计现金支出。明细与导出（复制文本 / txt / 品牌海报 PNG，含站点二维码）均随此口径生成，明暗主题与表单状态本地持久化。
 
-- 成交价 = 裸车原价 + 选装包 − 官方优惠 − 门店优惠 − 金融返点，是首付、月供与卖车残值的计算基数
-- 计税基数（开票价）单独按「计税口径」计算：可选选装是否计入、官方优惠 / 门店优惠 / 金融返点是否冲减；只用于购置税与以旧换新补贴，可能与成交价不同
-- 补贴直接抵扣总价，不参与计税；贷款落地总价 = 首付 + 月供 × 实际期数 + 结清款 + 税险杂 − 补贴
-- 用车成本与购车口径衔接：首年保险与车船税已计入购车落地总价，用车成本仅计第 2 年起的续保（按 NCD 折扣）与车船税，不重复计算；折旧视为机会成本不计入现金支出，仅在折旧参考行展示；贷款按持有年末截断并计入卖出时结清余额
-- 卖车损益防双算：全周期净支出 = 落地总价（按卖出月截断贷款）+ 用车成本（按卖出时点截断）− 卖车到手价（卖价 − 贷款结清余额 − 结清手续费 − 卖出费用）− 保险退保回收（默认只退商业险）；置换/报废/首购/保险补贴已在购车页抵扣，卖车侧不重复计算；结清余额从卖车款中扣除而非计入支出侧
-
-## 项目结构
-
-```tree
-carpay
-├─ index.html                    # favicon 与主题预置脚本
-├─ src
-│  ├─ main.tsx / App.tsx
-│  ├─ index.css                  # Tailwind 基础样式
-│  ├─ components
-│  │  ├─ CarPayCalculator.tsx    # 主壳：导航、购车测算 UI 与导出
-│  │  ├─ OwnCostPanel.tsx        # 用车成本面板 UI
-│  │  ├─ SellPanel.tsx           # 卖车损益面板 UI
-│  │  ├─ shared.tsx              # 共享 UI 原语（LabelInput/Tip/ToggleGroup/ChipGroup 等）、工具函数与站点常量
-│  │  └─ sharePoster.ts          # 导出/分享品牌海报（卡片克隆 + 来源页脚 + 站点二维码）
-│  └─ models
-│     ├─ buyModel.ts             # 购车测算类型、默认值与计算
-│     ├─ ownCostModel.ts         # 用车成本类型、默认值、NCD/保养/易损/残值计算与明细文本
-│     ├─ sellModel.ts            # 卖车损益：贷款截断、残值三模式、逐年净支出、渠道与油电对比
-│     └─ models.test.ts          # 购车/用车/卖车模型回归（Vitest）
-├─ docs                          # 各模块调研与落地方案（含落地状态标注）
-├─ .github/workflows/deploy.yml  # push main 自动测试、构建并发布 GitHub Pages
-└─ vite.config.ts                # base './'，支持子路径部署
 ```
-
-文件命名约定：默认导出组件用 PascalCase（如 `CarPayCalculator.tsx`），命名导出的模型与工具模块用 camelCase（如 `buyModel.ts`、`shared.tsx`）。
+carpay/
+├── .github/
+│   └── workflows/deploy.yml
+├── src/
+│   ├── components/
+│   │   ├── CarPayCalculator.tsx
+│   │   ├── OwnCostPanel.tsx
+│   │   ├── SellPanel.tsx
+│   │   ├── sharePoster.ts
+│   │   └── shared.tsx
+│   ├── models/
+│   │   ├── buyModel.ts
+│   │   ├── models.test.ts
+│   │   ├── ownCostModel.ts
+│   │   └── sellModel.ts
+│   ├── App.tsx
+│   ├── index.css
+│   └── main.tsx
+├── .gitignore
+├── index.html
+├── LICENSE
+├── package.json
+├── package-lock.json
+├── postcss.config.js
+├── tailwind.config.js
+├── tsconfig.json
+└── vite.config.ts
+```
 
 ## 技术栈
 
-| 模块     | 技术                                                        |
-| -------- | ----------------------------------------------------------- |
-| 框架     | React 18 + TypeScript（strict，tsc --noEmit 门禁）          |
-| 构建     | Vite 5                                                      |
-| 样式     | Tailwind CSS 3（class 暗色模式）+ lucide-react 图标         |
-| 动效     | Framer Motion（Tab 指示器 / 面板过渡 / 金额 spring 数字）   |
-| 测试     | Vitest（购车/用车/卖车模型回归）                             |
-| 导出图片 | html-to-image + qrcode（均按需动态分包，不增大首屏）         |
-| 持久化   | localStorage（`carpay:buy-form:v1` / `carpay:own-form:v1` / `carpay:sell-form:v1` / `carpay:theme`） |
-| 部署     | GitHub Actions → GitHub Pages                               |
+| 模块 | 技术栈 |
+| :--- | :--- |
+| 框架 | React 18 + TypeScript（strict，`tsc --noEmit` 门禁） |
+| 构建 | Vite 5（`base: './'`，支持子路径部署） |
+| 样式 | Tailwind CSS 3（class 暗色模式）+ lucide-react |
+| 动效 | Framer Motion（Tab 指示器 / 布局滑块 / spring 数字） |
+| 导出 | html-to-image + qrcode（均动态分包，不增大首屏） |
+| 测试 | Vitest（购车 / 用车 / 卖车模型回归） |
+| 持久化 | localStorage（`carpay:buy-form:v1` / `carpay:own-form:v1` / `carpay:sell-form:v1` / `carpay:theme`） |
+| 部署 | GitHub Actions → GitHub Pages（push main 自动测试、构建、发布） |
 
-## 开发
+本地开发：`npm install && npm run dev`；测试 `npm test`；类型检查 `npm run typecheck`；构建 `npm run build`。
 
-```bash
-npm install
-npm run dev       # 本地开发
-npm run build     # 类型检查 + 构建
-npm test          # 计算模型回归（Vitest）
-npm run typecheck # 仅类型检查（tsc --noEmit）
-npm run preview   # 本地预览构建产物
-```
+本项目基于 [MIT](./LICENSE) 开源。
 
-## License
+---
 
-[MIT](./LICENSE) © colflip
+A full-life-cycle vehicle cost calculator that chains **purchase → ownership → resale** into one account. Pure front-end, fully offline; data stays in browser `localStorage`. Live: <https://colflip.github.io/carpay/>.
+
+Purchase models *deal price* and *tax base (invoiced price)* separately, applies purchase tax in three tiers (10% full / 5% half with the ¥15k-per-vehicle cap for NEVs 2026-2027 / exempt) with manual override, links trade-in / scrappage / first-purchase / insurance subsidies to the 2026 policy rates on the invoiced price, and covers full cash, down-payment installments, and fixed-amount loans with annuity schedules, interest-free periods, and early settlement. Ownership projects 1-10 years across three energy types with NCD renewal discounts (0.85 / 0.70 / 0.50 and claim scenarios), vessel tax, mileage-driven maintenance and wear parts, and parking / washing / toll presets, outputting monthly / yearly / per-km costs, a year-by-year table, and a gas vs. PHEV vs. BEV comparison. Resale adds sell-year-plus-month granularity, three residual modes with mileage adjustment, loan truncation at the sale month, commercial-insurance refunds pro-rated by remaining months, net proceeds, the best year to sell, channel quotes, and a cross-energy comparison.
+
+All three stages share a **no-double-counting** ledger: first-year insurance and vessel tax live in the purchase total, subsidies are deducted only at purchase, loan repayment stops at the sale month, and depreciation is realized through the sale price. Released under [MIT](./LICENSE).
