@@ -300,7 +300,7 @@ export default function SellPanel({
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm text-zinc-700 dark:text-zinc-300">残值基数</span>
-                        <Tip text="成交价＝购车页成交价（裸车 + 选装 − 官方优惠 − 门店优惠 − 金融返点），与用车面板折旧参考同口径；开票价只用于购置税与补贴，不影响残值。指导价＝厂商指导裸车原价，贴近二手车平台按指导价折扣报价的习惯。" />
+                        <Tip text="成交价＝购车页成交价（裸车 + 选装 − 官方优惠 − 门店优惠 − 贷款返现），与用车面板折旧参考同口径；开票价只用于购置税与补贴，不影响残值。指导价＝厂商指导裸车原价，贴近二手车平台按指导价折扣报价的习惯。" />
                       </div>
                       <Segmented
                         className="ml-auto"

@@ -1,5 +1,5 @@
 // 分享/导出图片的品牌海报包装：把汇总卡片套进带品牌页眉与页脚（二维码 + 时间 + 站点链接）的海报里再截图
-import { GITHUB_URL, SITE_LINK, SITE_URL } from './shared';
+import { SITE_LINK, SITE_URL } from './shared';
 
 const logoSvg = (size: number, dark: boolean): string =>
   `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="${
@@ -51,24 +51,18 @@ export async function renderPosterPng(
     </div>`;
 
   const clone = card.cloneNode(true) as HTMLElement;
-  // 页面上的说明气泡在静态图里没有意义；仓库水印页面已不显示，只在导出图里注入到免责声明行
+  // 页面上的说明气泡在静态图里没有意义
   clone.querySelectorAll('button[aria-label^="说明："]').forEach((n) => n.remove());
   clone.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
   const disclaimer = Array.from(clone.querySelectorAll('p')).find(
     (p) => p.textContent?.includes('本测算') || p.textContent?.includes('金额均为估算'),
   );
   if (disclaimer) {
-    const mark = document.createElement('a');
-    mark.href = GITHUB_URL;
-    mark.target = '_blank';
-    mark.rel = 'noreferrer';
-    mark.setAttribute('aria-label', 'colflip/CarPay GitHub 仓库');
-    mark.className = dark ? 'text-zinc-600' : 'text-zinc-300';
-    // 定位与字号用内联样式：Tailwind 只编译页面源码里出现过的类，裸 top-[75%] 等不在产物中
-    mark.style.cssText =
-      'position:absolute;right:0;top:75%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;font-size:13px;line-height:1.4;';
-    mark.innerHTML = `${githubSvg}<span>colflip/CarPay</span>`;
-    disclaimer.prepend(mark);
+    // 仓库水印单独一行右对齐：免责声明会换行，绝对定位叠在文字上会互相遮挡
+    const mark = document.createElement('div');
+    mark.className = `mt-1.5 flex justify-end ${dark ? 'text-zinc-600' : 'text-zinc-300'}`;
+    mark.innerHTML = `<span style="display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.4;">${githubSvg}<span>colflip/CarPay</span></span>`;
+    disclaimer.after(mark);
   }
   poster.appendChild(clone);
 

@@ -2,8 +2,9 @@ import { clamp, fmtCNY, num, round2 } from '../components/shared';
 import {
   computeBuy,
   firstBuyAmount,
+  fixedInterestTotal,
   policySubsidy,
-  remainingPrincipalAt,
+  settleAtMonth,
   type BuyForm,
   type BuyCalc,
 } from './buyModel';
@@ -95,11 +96,22 @@ export function loanAtSale(buyForm: BuyForm, buyCalc: BuyCalc, sellMonth: number
     truncated: true,
     settledEarly: false,
     buyTotal: round2(buyCalc.down + buyCalc.monthly * sellMonth + extras - buyCalc.subsNonLoan),
-    settleAtSale: remainingPrincipalAt(
+    // 卖车截断的结清余额与购车测算共用 loanSchedule 引擎：
+    // 固定利息取表单报价折算的全期费用（而非已被提前结清截断的利息）
+    settleAtSale: settleAtMonth(
+      buyForm.repayMode,
       buyCalc.principal,
-      buyCalc.monthly,
-      num(buyForm.annualRatePct),
+      buyCalc.ratePct,
+      buyForm.interestMode === 'fixedFee'
+        ? fixedInterestTotal(
+            num(buyForm.fixedInterest),
+            buyForm.fixedInterestUnit,
+            buyCalc.months,
+            buyCalc.freeMonths,
+          )
+        : 0,
       buyCalc.freeMonths,
+      buyCalc.months,
       sellMonth,
     ),
     // 结清手续费沿用购车页「提前还款手续费」：只有设定了提前还款计划才计，
@@ -268,6 +280,15 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
     const capped = sf.residualMode === 'manual' ? raw : Math.min(raw, 100);
     return Math.max(0, round2((residualBaseVal * capped) / 100));
   };
+
+  // 手动模式的逐年缩放上限：用户报价只对锚定年权威，向更早年份按曲线比例外推时
+  // 若锚定残值率高于曲线值，比例会把早年卖价放大成「旧车比新车还贵」，
+  // 凭空造出首年卖车反而盈利的假象。故缩放后的残值率封顶在 max(100%, 锚定残值率)：
+  // 常规车不越过新车价，收藏车（报价高于成交价）仍与当前卖价保持一致。
+  // 锚定年之后的年份按曲线递减，缩放值本就 ≤ 锚定值，封顶不会额外生效。
+  const manualScaleCapPct = Math.max(100, anchorRatePct);
+  const scaleCapped = (ratePct: number): number =>
+    sf.residualMode === 'manual' ? Math.min(ratePct, manualScaleCapPct) : ratePct;
   const currentSalePrice = sf.residualMode === 'manual' ? manualPrice : priceAt(anchorRatePct, yearFrac, sf.mileageAdjust);
 
   const current = evalPoint({
@@ -292,7 +313,7 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
       yearFrac: y,
       sellMonthAbs: y * 12,
       monthInYear: 12,
-      salePrice: priceAt(rateForYear(ownForm.energyType, y, yearFrac, anchorRatePct), y, sf.mileageAdjust && sf.residualMode === 'auto'),
+      salePrice: priceAt(scaleCapped(rateForYear(ownForm.energyType, y, yearFrac, anchorRatePct)), y, sf.mileageAdjust && sf.residualMode === 'auto'),
       fees: sellFees,
       refundFeePct,
     });
@@ -365,7 +386,7 @@ export function computeSell(sf: SellForm, buyForm: BuyForm, buyCalc: BuyCalc, ow
     for (let y = 1; y <= 10; y++) {
       const rate =
         key === ownForm.energyType
-          ? rateForYear(key, y, yearFrac, anchorRatePct)
+          ? scaleCapped(rateForYear(key, y, yearFrac, anchorRatePct))
           : autoResidualPct(key, y);
       const p = evalPoint({
         own,

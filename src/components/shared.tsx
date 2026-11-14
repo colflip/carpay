@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, useSpring, useTransform } from 'framer-motion';
-import { Info } from 'lucide-react';
+import { ChevronRight, Info } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 // 站点与仓库地址：页头 GitHub 图标、导出海报的二维码与仓库水印共用
@@ -14,9 +15,16 @@ export const num = (s: string): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export const clamp = (n: number, min: number, max: number): number => Math.min(max, Math.max(min, n));
+export const clamp = (n: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, n));
 
 export const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
+
+// 百分数格式化：保留 2-3 位小数（去掉末尾 0），如 3.25%、3.250%、0.5%
+export const fmtPct = (n: number): string => {
+  const s = n.toFixed(3).replace(/\.?0+$/, '');
+  return `${s}%`;
+};
 
 export const fmtCNY = (n: number, withSign = false): string => {
   const sign = n < 0 ? '-' : withSign ? '+' : '';
@@ -89,7 +97,13 @@ export function toCNUpper(amount: number): string {
 export const sanitizeMoney = (v: string): string => {
   let t = v.replace(/[^0-9.]/g, '');
   const i = t.indexOf('.');
-  if (i >= 0) t = t.slice(0, i + 1) + t.slice(i + 1).replace(/\./g, '').slice(0, 2);
+  if (i >= 0)
+    t =
+      t.slice(0, i + 1) +
+      t
+        .slice(i + 1)
+        .replace(/\./g, '')
+        .slice(0, 2);
   return t;
 };
 
@@ -198,9 +212,7 @@ export function LabelInput({
           {tip && <Tip text={tip} />}
           {badge && <span className="shrink-0">{badge}</span>}
         </span>
-        {controls && (
-          <span className="flex min-w-0 items-center sm:-ml-1">{controls}</span>
-        )}
+        {controls && <span className="flex min-w-0 items-center sm:-ml-1">{controls}</span>}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
           {upper && (
             <span className="hidden min-w-0 truncate text-right text-sm leading-none text-zinc-400 sm:inline dark:text-zinc-500">
@@ -236,96 +248,171 @@ export function LabelInput({
   );
 }
 
+// 说明气泡渲染到 body：汇总卡明细区是内部滚动容器，普通绝对定位会被 overflow 裁切
 export function Tip({ text }: { text: string }) {
-  const [pos, setPos] = useState<{ h: 'left' | 'right' | 'center'; v: 'above' | 'below' }>({
-    h: 'center',
-    v: 'above',
-  });
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    arrowLeft: number;
+    above: boolean;
+  } | null>(null);
   const anchorRef = useRef<HTMLButtonElement>(null);
 
   const place = useCallback(() => {
     const el = anchorRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const W = 264;
-    const H = 150;
-    const spaceRight = window.innerWidth - r.left;
-    const spaceLeft = r.right;
-    const h = spaceRight >= W + 16 ? 'left' : spaceLeft >= W + 16 ? 'right' : 'center';
-    // 顶部空间不足且下方更充裕时翻到下方，避免在视口上缘被裁切
-    const v = r.top < H && window.innerHeight - r.bottom > r.top ? 'below' : 'above';
-    setPos({ h: h as typeof pos.h, v: v as typeof pos.v });
+    const width = Math.min(272, window.innerWidth - 24);
+    const left = clamp(r.left + r.width / 2 - width / 2, 12, window.innerWidth - width - 12);
+    // 上方空间不足且下方更充裕时翻到下方，避免在视口上缘被裁切
+    const above = r.top >= 150 || r.top > window.innerHeight - r.bottom;
+    setPos({
+      left,
+      top: above ? r.top - 8 : r.bottom + 8,
+      width,
+      arrowLeft: clamp(r.left + r.width / 2 - left, 14, width - 14),
+      above,
+    });
   }, []);
 
-  const hCls =
-    pos.h === 'left'
-      ? 'left-0 after:left-3'
-      : pos.h === 'right'
-        ? 'right-0 after:right-3'
-        : 'left-1/2 -translate-x-1/2 after:left-1/2 after:-ml-1';
-  const vCls =
-    pos.v === 'above'
-      ? 'bottom-full mb-2 after:top-full after:-mt-1'
-      : 'top-full mt-2 after:bottom-full after:-mb-1';
+  // 打开期间跟随滚动/缩放重新定位（捕获阶段可覆盖明细区内部滚动）
+  useEffect(() => {
+    if (!open) return;
+    const onMove = () => place();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [open, place]);
+
+  const show = () => {
+    place();
+    setOpen(true);
+  };
 
   return (
-    <button
-      type="button"
-      ref={anchorRef}
-      aria-label={`说明：${text}`}
-      aria-expanded={open}
-      onClick={() => {
-        place();
-        setOpen((o) => !o);
-      }}
-      onMouseEnter={place}
-      onFocus={place}
-      onBlur={() => setOpen(false)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') setOpen(false);
-      }}
-      className="group/tip relative inline-flex shrink-0 cursor-help appearance-none border-0 bg-transparent p-2 -m-2 leading-none"
-    >
-      <Info
-        size={13}
-        strokeWidth={2}
-        aria-hidden
-        className="text-zinc-300 transition-colors group-hover/tip:text-zinc-500 group-focus/tip:text-zinc-500 dark:text-zinc-600 dark:group-hover/tip:text-zinc-400 dark:group-focus/tip:text-zinc-400"
-      />
-      <span
-        aria-hidden
-        className={`pointer-events-none absolute z-50 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl bg-zinc-900 px-3 py-2 text-left text-sm font-normal leading-relaxed text-zinc-100 opacity-0 shadow-xl shadow-zinc-900/10 transition-opacity duration-150 group-hover/tip:opacity-100 group-focus/tip:opacity-100 dark:bg-zinc-100 dark:text-zinc-900 dark:after:bg-zinc-100 after:absolute after:h-2 after:w-2 after:rotate-45 after:bg-zinc-900 ${vCls} ${hCls} ${
-          open ? 'opacity-100' : ''
-        }`}
+    <>
+      <button
+        type="button"
+        ref={anchorRef}
+        aria-label={`说明：${text}`}
+        aria-expanded={open}
+        onClick={(e) => {
+          e.preventDefault();
+          show();
+        }}
+        onMouseEnter={show}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={show}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setOpen(false);
+        }}
+        className="relative inline-flex shrink-0 cursor-help appearance-none border-0 bg-transparent p-2 -m-2 leading-none"
       >
-        {text}
-      </span>
-    </button>
+        <Info
+          size={13}
+          strokeWidth={2}
+          aria-hidden
+          className="text-zinc-300 transition-colors hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400"
+        />
+      </button>
+      {open && pos
+        ? createPortal(
+            <div
+              role="tooltip"
+              style={{
+                position: 'fixed',
+                left: pos.left,
+                top: pos.top,
+                width: pos.width,
+                transform: pos.above ? 'translateY(-100%)' : undefined,
+              }}
+              className="pointer-events-none z-[60] rounded-xl bg-zinc-900 px-3 py-2 text-left text-[13px] font-normal leading-relaxed text-zinc-100 shadow-xl shadow-zinc-900/20 dark:bg-zinc-100 dark:text-zinc-900"
+            >
+              {text}
+              <span
+                aria-hidden
+                className="absolute h-2 w-2 rotate-45 bg-zinc-900 dark:bg-zinc-100"
+                style={{
+                  left: pos.arrowLeft - 4,
+                  bottom: pos.above ? -4 : undefined,
+                  top: pos.above ? undefined : -4,
+                }}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+export function Disclosure({
+  title,
+  hint,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  hint?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="py-1.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 rounded-lg py-1 text-left text-sm text-zinc-700 transition-colors hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+      >
+        <span className="flex min-w-0 items-center gap-1">
+          <ChevronRight
+            size={13}
+            strokeWidth={2}
+            aria-hidden
+            className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+          />
+          <span className="truncate">{title}</span>
+          {hint && <span className="truncate text-zinc-400 dark:text-zinc-500">{hint}</span>}
+        </span>
+        <span className="shrink-0 text-zinc-400 dark:text-zinc-500">{open ? '收起' : '展开'}</span>
+      </button>
+      {open && <div className="panel-enter">{children}</div>}
+    </div>
   );
 }
 
 export function FormSection({
   icon: Icon,
   title,
+  titleTip,
   action,
   children,
 }: {
   icon: LucideIcon;
   title: string;
+  titleTip?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="px-4 py-3 sm:px-5">
-      <div className="mb-1 flex items-center justify-between gap-2 text-zinc-500 dark:text-zinc-400">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-zinc-500 dark:text-zinc-400">
         <div className="flex items-center gap-2">
           <Icon size={14} strokeWidth={2} aria-hidden />
           <h3 className="text-sm font-medium">{title}</h3>
+          {titleTip}
         </div>
         {action}
       </div>
-      <div className="divide-y divide-zinc-100 dark:divide-zinc-800/70">{children}</div>
+      <div>{children}</div>
     </section>
   );
 }
@@ -418,9 +505,7 @@ export function Segmented<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(o.value)}
             className={`relative flex items-center justify-center rounded-[10px] px-3 text-[13px] transition-colors sm:text-sm ${
-              compact
-                ? 'h-[30px] sm:h-[30px] sm:px-3.5'
-                : 'h-10 sm:h-[34px] sm:px-4'
+              compact ? 'h-[30px] sm:h-[30px] sm:px-3.5' : 'h-10 sm:h-[34px] sm:px-4'
             } ${
               active
                 ? 'text-zinc-900 dark:text-zinc-50'
@@ -467,7 +552,7 @@ export function ChipGroup<T extends string>({
             aria-pressed={active}
             disabled={o.disabled}
             onClick={() => onToggle(o.value)}
-            className={`flex h-8 items-center rounded-full border px-3.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`flex h-8 items-center rounded-full border px-3.5 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               active
                 ? 'border-emerald-400 bg-emerald-50 font-medium text-emerald-600 dark:border-emerald-400/50 dark:bg-emerald-400/10 dark:text-emerald-300'
                 : 'border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -481,28 +566,57 @@ export function ChipGroup<T extends string>({
   );
 }
 
+export function Badge({
+  children,
+  tone = 'neutral',
+}: {
+  children: ReactNode;
+  tone?: 'neutral' | 'emerald' | 'amber';
+}) {
+  const cls = {
+    neutral: 'border-zinc-200 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400',
+    emerald: 'border-emerald-200 text-emerald-600 dark:border-emerald-800 dark:text-emerald-400',
+    amber: 'border-amber-200 text-amber-600 dark:border-amber-800 dark:text-amber-400',
+  }[tone];
+  return (
+    <span className={`shrink-0 rounded-full border px-1.5 py-px text-[13px] leading-4 ${cls}`}>
+      {children}
+    </span>
+  );
+}
+
 export function SummaryRow({
   label,
   tip,
   value,
   tone = 'base',
   badge,
+  divider,
+  emphasis,
 }: {
   label: string;
   tip?: string;
   value: string;
   tone?: 'base' | 'minus' | 'plus' | 'strong' | 'muted';
   badge?: ReactNode;
+  divider?: boolean;
+  emphasis?: boolean;
 }) {
   const toneCls = {
     base: 'text-zinc-700 dark:text-zinc-300',
     minus: 'text-emerald-600 dark:text-emerald-400',
     plus: 'text-zinc-500 dark:text-zinc-400',
     strong: 'font-medium text-zinc-900 dark:text-zinc-50',
-    muted: 'text-zinc-400 dark:text-zinc-600',
+    muted: 'text-zinc-500 dark:text-zinc-500',
   }[tone];
   return (
-    <div className="flex items-baseline justify-between gap-4 text-[15px]">
+    <div
+      className={`flex items-baseline justify-between gap-4 ${
+        emphasis ? 'text-[15px]' : 'text-[14px]'
+      } ${
+        divider ? 'mt-1.5 border-t border-dashed border-zinc-200 pt-2 dark:border-zinc-700/60' : ''
+      }`}
+    >
       <span className="flex min-w-0 items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
         <span className="truncate">{label}</span>
         {tip && <Tip text={tip} />}
@@ -516,45 +630,85 @@ export function SummaryRow({
 export function SummaryGroup({
   icon: Icon,
   title,
+  meta,
   children,
+  className = '',
+  headerClassName = 'px-4',
 }: {
   icon: LucideIcon;
   title: string;
+  meta?: ReactNode;
   children: ReactNode;
+  className?: string;
+  headerClassName?: string;
 }) {
   return (
-    <div className="py-2">
-      <div className="flex items-center gap-1.5 text-[13px] font-medium text-zinc-400 dark:text-zinc-500">
-        <Icon size={13} strokeWidth={2} aria-hidden />
-        {title}
+    <div className={`py-3 px-4 ${className}`}>
+      <div className={`flex items-center justify-between gap-3 ${headerClassName}`}>
+        <div className="flex min-w-0 items-center gap-1.5 text-[14px] font-semibold tracking-[0.02em] text-zinc-700 dark:text-zinc-200">
+          <Icon
+            size={20}
+            strokeWidth={1.75}
+            aria-hidden
+            className="shrink-0 text-zinc-400 dark:text-zinc-500"
+          />
+          <span className="truncate">{title}</span>
+        </div>
+        {meta && (
+          <span className="min-w-0 truncate text-right text-[13px] text-zinc-500 dark:text-zinc-400">
+            {meta}
+          </span>
+        )}
       </div>
-      <div className="mt-1 space-y-1">{children}</div>
+      <div className="mt-1.5 space-y-1">{children}</div>
     </div>
   );
 }
 
-export function AnimatedAmount({ value }: { value: number }) {
+export function AnimatedAmount({ value, size = 'md' }: { value: number; size?: 'md' | 'lg' }) {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => setReduce(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   const mv = useSpring(value, { stiffness: 150, damping: 24 });
   useEffect(() => {
     mv.set(value);
   }, [value, mv]);
-  const text = useTransform(mv, (v) => {
-    const s = Math.abs(v).toLocaleString('zh-CN', {
+  const fmt = (v: number) =>
+    (v < 0 ? '-' : '') +
+    Math.abs(v).toLocaleString('zh-CN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-    return (v < 0 ? '-' : '') + s;
-  });
+  const text = useTransform(mv, fmt);
+  const numCls =
+    size === 'lg' ? 'text-[25px] font-semibold leading-none tracking-tight' : 'text-[20px]';
+  const symCls =
+    size === 'lg' ? 'text-[15px] font-medium opacity-60' : 'text-[13px] font-medium opacity-60';
   return (
-    <span className="tabular-nums">
-      <span className="text-[13px] font-medium opacity-60">¥</span>{' '}
-      <motion.span className="text-[20px]">{text}</motion.span>
+    <span className="inline-flex items-baseline gap-1 tabular-nums">
+      <span className={symCls}>¥</span>
+      {reduce ? (
+        <span className={numCls}>{fmt(value)}</span>
+      ) : (
+        <motion.span className={numCls}>{text}</motion.span>
+      )}
     </span>
   );
 }
 
-export function CompositionBar({ parts }: { parts: { label: string; value: number; cls: string }[] }) {
-  const shown = parts.filter((p) => p.value > 0);
+export function CompositionBar({
+  parts,
+  note,
+}: {
+  parts: { label: string; value: number; cls: string }[];
+  note?: string;
+}) {
+  const shown = parts.filter((p) => p.value > 0.005);
   const sum = shown.reduce((a, p) => a + p.value, 0);
   if (sum <= 0) return null;
   return (
@@ -563,24 +717,29 @@ export function CompositionBar({ parts }: { parts: { label: string; value: numbe
         {shown.map((p) => (
           <div
             key={p.label}
-            className={p.cls}
-            style={{ width: `${(p.value / sum) * 100}%` }}
+            className={`${p.cls} transition-[width] duration-300 ease-out`}
+            style={{ width: `${(p.value / sum) * 100}%`, minWidth: 3 }}
             title={`${p.label} ${fmtCNY(p.value)}`}
           />
         ))}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 px-2.5">
+      <div className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1 px-1">
         {shown.map((p) => (
           <span
             key={p.label}
             className="flex items-center gap-1.5 text-[13px] text-zinc-500 dark:text-zinc-400"
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${p.cls}`} aria-hidden />
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${p.cls}`} aria-hidden />
             {p.label}
             <span className="tabular-nums text-zinc-600 dark:text-zinc-300">{fmtCNY(p.value)}</span>
           </span>
         ))}
       </div>
+      {note && (
+        <div className="mt-1 text-[13px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          {note}
+        </div>
+      )}
     </div>
   );
 }

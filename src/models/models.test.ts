@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { computeBuy, DEFAULT_BUY_FORM, type BuyForm } from './buyModel';
+import { round2 } from '../components/shared';
+import { computeBuy, DEFAULT_BUY_FORM, fixedInterestTotal, stateSubsidyAmount, type BuyForm } from './buyModel';
 import { autoResidualPctAt, computeOwn, DEFAULT_OWN_FORM, ownCostCumulative, type OwnForm } from './ownCostModel';
 import { computeSell, DEFAULT_SELL_FORM, salePeriodText, type SellForm } from './sellModel';
 
-const buy = (p: Partial<BuyForm>): BuyForm => ({ ...DEFAULT_BUY_FORM, ...p });
+// 模型测试用「无贴息」干净基线，避免 UI 默认政策贴息污染各口径断言；
+// 需要贴息的用例显式传 stateInterestSubsidy 覆盖
+const buy = (p: Partial<BuyForm>): BuyForm => ({ ...DEFAULT_BUY_FORM, stateInterestSubsidy: '', ...p });
 const own = (p: Partial<OwnForm>): OwnForm => ({ ...DEFAULT_OWN_FORM, ...p });
 const sell = (p: Partial<SellForm>): SellForm => ({ ...DEFAULT_SELL_FORM, ...p });
 
@@ -42,6 +45,14 @@ describe('购车测算', () => {
     expect(rebateOff.down + rebateOff.principal).toBe(130000);
   });
 
+  it('其他优惠直接抵扣落地总价，不影响成交价与计税基数', () => {
+    const c = computeBuy(buy({ otherDiscount: '3000' }));
+    expect(c.otherDiscount).toBe(3000);
+    expect(c.dealPrice).toBe(135000);
+    expect(c.taxBase).toBe(135000);
+    expect(c.total).toBe(148941.9);
+  });
+
   it('等额本息/免息/提前结清', () => {
     const finance = computeBuy(
       buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25' }),
@@ -50,7 +61,6 @@ describe('购车测算', () => {
     expect(finance.interest).toBe(4809.6);
     expect(finance.down + finance.principal).toBe(finance.dealPrice);
     expect(finance.total).toBe(156751.5);
-
     const free = computeBuy(
       buy({ paymentMode: 'finance', months: 60, freeMonths: 24, annualRatePct: '3.25' }),
     );
@@ -62,6 +72,242 @@ describe('购车测算', () => {
     expect(early.settleAmount).toBe(64016.64);
     expect(early.interest).toBe(2619.84);
     expect(early.total).toBe(155361.74);
+  });
+
+  it('固定利息按费用均摊：月供 =（本金+利息）÷期数，提前结清按已计息期计提', () => {
+    // 用户场景：本金 10 万，年利息 2500，60 期，第 24 期结清 → 利息 = 2500 × 2 年 = 5000
+    const c = computeBuy(
+      buy({
+        paymentMode: 'mortgage',
+        loanAmount: '100000',
+        months: 60,
+        interestMode: 'fixedFee',
+        fixedInterest: '2500',
+        fixedInterestUnit: 'yearly',
+        earlyRepayMonth: 24,
+      }),
+    );
+    expect(c.principal).toBe(100000);
+    // 全期利息 12500，月供 = 112500 / 60 = 1875
+    expect(c.monthly).toBe(1875);
+    // 第 24 期结清：已过 24 个计息月 = 2 年，计提利息 = 2500 × 2 = 5000
+    expect(c.interest).toBe(5000);
+    // 结清余额 = 100000 + 5000 − 1875 × 24 = 60000
+    expect(c.settleAmount).toBe(60000);
+    expect(c.totalRepay).toBe(105000);
+    // 不提前：利息恰为全期 12500
+    const full = computeBuy(
+      buy({ paymentMode: 'mortgage', loanAmount: '100000', months: 60, interestMode: 'fixedFee', fixedInterest: '2500', fixedInterestUnit: 'yearly' }),
+    );
+    expect(full.interest).toBe(12500);
+    expect(full.totalRepay).toBe(112500);
+    // 免息 12 期：全期费用折算 = 2500 × 48/12 = 10000，
+    // 月供 = (100000 + 10000)/60 = 1833.33；第 24 期结清已过 12 个计息月，计提 2500
+    const withFree = computeBuy(
+      buy({ paymentMode: 'mortgage', loanAmount: '100000', months: 60, freeMonths: 12, interestMode: 'fixedFee', fixedInterest: '2500', fixedInterestUnit: 'yearly', earlyRepayMonth: 24 }),
+    );
+    expect(withFree.monthly).toBe(1833.33);
+    expect(withFree.interest).toBe(2500);
+  });
+
+  it('固定利息按月/年报价折算为全期总利息，三种单位口径一致', () => {
+    // 36 期无免息：月 100 → 总共 3600；年 1200 → 总共 3600，月供一致
+    const monthly = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, interestMode: 'fixedFee', fixedInterest: '100', fixedInterestUnit: 'monthly' }),
+    );
+    const yearly = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, interestMode: 'fixedFee', fixedInterest: '1200', fixedInterestUnit: 'yearly' }),
+    );
+    const total = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, interestMode: 'fixedFee', fixedInterest: '3600', fixedInterestUnit: 'total' }),
+    );
+    expect(monthly.interest).toBe(3600);
+    expect(yearly.interest).toBe(3600);
+    expect(total.interest).toBe(3600);
+    expect(monthly.monthly).toBe(yearly.monthly);
+    expect(monthly.monthly).toBe(total.monthly);
+
+    // 免息 12 期：计息期数 24，月 100 → 2400（免息期不计息），月供 =(本金+2400)/36
+    const freeMonthly = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, freeMonths: 12, interestMode: 'fixedFee', fixedInterest: '100', fixedInterestUnit: 'monthly' }),
+    );
+    expect(freeMonthly.interest).toBe(2400);
+    expect(fixedInterestTotal(100, 'monthly', 36, 12)).toBe(2400);
+  });
+
+  it('财政贴息默认选中 1% 政策口径', () => {
+    const policy = stateSubsidyAmount(DEFAULT_BUY_FORM.months).amount;
+    expect(policy).toBe(1500); // 默认 36 期 = 3 年
+    expect(DEFAULT_BUY_FORM.stateInterestSubsidy).toBe(String(policy));
+    // 切到贷款后默认值即按政策抵扣落地总价；全款不计贴息
+    const finance = computeBuy({ ...DEFAULT_BUY_FORM, paymentMode: 'finance' });
+    const noSubsidy = computeBuy({
+      ...DEFAULT_BUY_FORM,
+      paymentMode: 'finance',
+      stateInterestSubsidy: '',
+    });
+    expect(finance.stateSubsidy).toBe(policy);
+    expect(finance.total).toBe(noSubsidy.total - policy);
+    expect(computeBuy(DEFAULT_BUY_FORM).stateSubsidy).toBe(0);
+  });
+
+  it('财政贴息独立抵扣落地总价，利息总额保持实际利息不扣减', () => {
+    const base = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25' }),
+    );
+    const subsidized = computeBuy(
+      buy({
+        paymentMode: 'finance',
+        downPaymentPct: '30',
+        months: 36,
+        annualRatePct: '3.25',
+        stateInterestSubsidy: '400',
+      }),
+    );
+    expect(subsidized.monthly).toBe(base.monthly);
+    expect(subsidized.stateSubsidy).toBe(400);
+    // 利息总额不扣减贴息，保持结清前实际利息
+    expect(subsidized.interest).toBe(base.interest);
+    // 贴息直接冲减落地总价
+    expect(subsidized.total).toBe(base.total - 400);
+
+    // 财金〔2025〕80号：贴息基数上限 5 万 × 年贴息 1% × 贷款年限，累计封顶 3000 元
+    // 即便贷款远超 5 万，也只按 5 万基数计
+    expect(stateSubsidyAmount(36).amount).toBe(1500);
+    expect(stateSubsidyAmount(60).amount).toBe(2500);
+    expect(stateSubsidyAmount(6).amount).toBe(250);
+    // 超长期封顶 3000（10 年时理论上 5000，被 3000 封顶）
+    expect(stateSubsidyAmount(120).amount).toBe(3000);
+
+    // 提前结清时贴息不超过实际利息（界面层负责按实际还款期数折算输入值）
+    const earlyLow = computeBuy(
+      buy({
+        paymentMode: 'finance',
+        downPaymentPct: '30',
+        months: 36,
+        earlyRepayMonth: 1,
+        earlyRepayFee: '0',
+        stateInterestSubsidy: '138.89',
+      }),
+    );
+    expect(earlyLow.stateSubsidy).toBe(138.89);
+    // 利息总额 = 结清前实际利息 255.94，不扣贴息
+    expect(earlyLow.interest).toBe(255.94);
+    // 落地总价中贴息抵扣：贴息 400 > 第 1 期实际利息 255.94，被利息封顶 → total 差 255.94
+    const with400 = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, earlyRepayMonth: 1, earlyRepayFee: '0', stateInterestSubsidy: '400' }),
+    );
+    const without400 = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, earlyRepayMonth: 1, earlyRepayFee: '0' }),
+    );
+    expect(with400.stateSubsidy).toBe(255.94);
+    expect(with400.total).toBeCloseTo(without400.total - 255.94, 2);
+
+    // 输入超过实际利息时贴息按利息封顶，利息总额仍不扣减
+    const overCap = computeBuy(
+      buy({
+        paymentMode: 'finance',
+        downPaymentPct: '30',
+        months: 36,
+        earlyRepayMonth: 1,
+        earlyRepayFee: '0',
+        stateInterestSubsidy: '5000',
+      }),
+    );
+    expect(overCap.stateSubsidy).toBeCloseTo(overCap.totalRepay - overCap.principal, 2);
+    expect(overCap.interest).toBeCloseTo(overCap.totalRepay - overCap.principal, 2);
+  });
+
+  it('还款方式：等额本金首期最高逐月递减，总利息少于等额本息', () => {
+    const c = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25', repayMode: 'equalPrincipal' }),
+    );
+    // 本金 = 135000 × 70% = 94500；每月本金 2625 + 首期利息 255.94，末期利息仅 7.11
+    expect(c.monthly).toBe(2880.94);
+    expect(c.lastMonthly).toBe(2632.11);
+    expect(c.interest).toBe(4734.84);
+    // 第 12 期结清：剩余本金 = 63000，已计提利息 2602.03
+    const early = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25', repayMode: 'equalPrincipal', earlyRepayMonth: 12 }),
+    );
+    expect(early.settleAmount).toBe(63000);
+    expect(early.interest).toBe(2602.03);
+  });
+
+  it('还款方式：先息后本每期付息、到期一次还本', () => {
+    const c = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25', repayMode: 'bullet' }),
+    );
+    expect(c.monthly).toBe(255.94);
+    expect(c.interest).toBe(9213.75);
+    expect(c.settleAmount).toBe(0);
+    // 第 12 期结清：余额即全部本金，利息 = 12 期
+    const early = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25', repayMode: 'bullet', earlyRepayMonth: 12 }),
+    );
+    expect(early.settleAmount).toBe(94500);
+    expect(early.interest).toBe(3071.25);
+    // 免息期：先息后本免息期内利息为 0
+    const withFree = computeBuy(
+      buy({ paymentMode: 'finance', downPaymentPct: '30', months: 36, annualRatePct: '3.25', repayMode: 'bullet', freeMonths: 12 }),
+    );
+    expect(withFree.interest).toBe(6142.5);
+  });
+
+  it('还款方式对固定利息模式无影响（一口价均摊，月供不变）', () => {
+    const fee = computeBuy(
+      buy({ paymentMode: 'mortgage', loanAmount: '100000', months: 60, interestMode: 'fixedFee', fixedInterest: '2500', fixedInterestUnit: 'yearly', repayMode: 'annuity' }),
+    );
+    const feeEp = computeBuy(
+      buy({ paymentMode: 'mortgage', loanAmount: '100000', months: 60, interestMode: 'fixedFee', fixedInterest: '2500', fixedInterestUnit: 'yearly', repayMode: 'equalPrincipal' }),
+    );
+    const feeBullet = computeBuy(
+      buy({ paymentMode: 'mortgage', loanAmount: '100000', months: 60, interestMode: 'fixedFee', fixedInterest: '2500', fixedInterestUnit: 'yearly', repayMode: 'bullet' }),
+    );
+    expect(feeEp.monthly).toBe(fee.monthly);
+    expect(feeBullet.monthly).toBe(fee.monthly);
+    expect(feeBullet.interest).toBe(fee.interest);
+  });
+
+  it('购置税计税价格 = 开票价 ÷ 1.13', () => {
+    const c = computeBuy(DEFAULT_BUY_FORM);
+    expect(c.purchaseTaxBase).toBe(119469.03);
+    expect(round2(c.purchaseTaxBase * 1.13)).toBe(c.taxBase);
+  });
+
+  it('贴息后实付利息与融资成本口径一致', () => {
+    const c = computeBuy(
+      buy({
+        paymentMode: 'finance',
+        downPaymentPct: '30',
+        months: 36,
+        annualRatePct: '3.25',
+        stateInterestSubsidy: '400',
+      }),
+    );
+    expect(c.interestNet).toBe(round2(c.interest - c.stateSubsidy));
+    expect(c.financeCost).toBe(round2(c.interest + c.earlyFee - c.stateSubsidy));
+    // 全款不产生融资成本
+    expect(computeBuy(DEFAULT_BUY_FORM).financeCost).toBe(0);
+  });
+
+  it('旧车 / 首购方式互斥：报废、置换、首购每年限享其一', () => {
+    const both = buy({ tradeInSubsidy: '8000', scrapSubsidy: '12000', firstBuySubsidy: '5000' });
+    // 未选择方式时，三项都不计入
+    expect(computeBuy({ ...both, oldCarMode: 'none' }).subsNonLoan).toBe(0);
+    // 只计所选那一项
+    const trade = computeBuy({ ...both, oldCarMode: 'tradeIn' });
+    expect(trade.tradeIn).toBe(8000);
+    expect(trade.scrap).toBe(0);
+    expect(trade.firstBuy).toBe(0);
+    const scrap = computeBuy({ ...both, oldCarMode: 'scrap' });
+    expect(scrap.tradeIn).toBe(0);
+    expect(scrap.scrap).toBe(12000);
+    expect(scrap.firstBuy).toBe(0);
+    const first = computeBuy({ ...both, oldCarMode: 'firstBuy' });
+    expect(first.tradeIn).toBe(0);
+    expect(first.scrap).toBe(0);
+    expect(first.firstBuy).toBe(5000);
   });
 });
 
@@ -151,6 +397,47 @@ describe('卖车损益', () => {
     );
     expect(c.salePrice).toBe(150000);
     expect(c.rows[2].salePrice).toBe(150000);
+  });
+
+  it('手动卖价倒推早年不产生虚假增值：首年不优于次年', () => {
+    // 回归：手动卖价按保值率曲线倒推更早年份时，曾把首年卖价放大到高于成交价，
+    // 造出「首年卖出反而盈利、比次年还便宜」的假象
+    const form = buy({
+      paymentMode: 'finance',
+      months: 24,
+      downPaymentPct: '20',
+      annualRatePct: '3.25',
+      vehicleType: 'phev',
+      taxRateMode: 'half',
+      vehicleVesselTax: '480',
+    });
+    const calc = computeBuy(form);
+    const c = computeSell(
+      sell({ residualMode: 'manual', manualSalePrice: '120000' }),
+      form,
+      calc,
+      own({ annualMileage: '30000', insuranceBase: '2000', refundBase: '1600', energyType: 'phev' }),
+    );
+    // 早年卖价不得超过 max(残值基数, 手动卖价)，杜绝「旧车比新车贵」的虚假增值
+    const cap = Math.max(c.residualBaseVal, 120000);
+    expect(c.rows[0].salePrice).toBeLessThanOrEqual(cap);
+    expect(c.rows[1].salePrice).toBeLessThanOrEqual(cap);
+    // 锚定年行仍等于手动卖价
+    expect(c.rows[2].salePrice).toBe(120000);
+    // 首年卖车不应是盈利，且年均成本不应优于次年
+    expect(c.rows[0].fullNet).toBeGreaterThan(0);
+    expect(c.rows[0].yearlyAvg).toBeGreaterThan(c.rows[1].yearlyAvg);
+  });
+
+  it('手动卖价高于成交价时早年也不超过手动价（收藏车不倒推增值）', () => {
+    const c = computeSell(
+      sell({ residualMode: 'manual', manualSalePrice: '150000' }),
+      DEFAULT_BUY_FORM,
+      computeBuy(DEFAULT_BUY_FORM),
+      DEFAULT_OWN_FORM,
+    );
+    expect(c.rows[0].salePrice).toBeLessThanOrEqual(150000);
+    expect(c.rows[1].salePrice).toBeLessThanOrEqual(150000);
   });
 
   it('贷款按卖出月截断，现金流恒等', () => {
